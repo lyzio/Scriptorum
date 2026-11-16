@@ -1,4 +1,5 @@
 # Scriptorum
+Note that this is a purely AI-written software, by human design and ideas. Since i needed something quick for a design, but liked the idea for others.
 
 Scriptorum is a desktop text processor for game masters who write their own adventures. You write in formatted text, much like a word processor, with game elements such as scenes, read-aloud texts, people, clues, creatures, maps and handouts. Scriptorum turns it into pixel-perfect PDFs for printing: the adventure itself and the player handouts, built from the same text so they never drift apart.
 
@@ -59,6 +60,4 @@ Help ▸ About Scriptorum lists every part with its version and full licence tex
 
 ## Licence
 
-Scriptorum is free software under the GNU General Public License, version 3 or later (GPL-3.0-or-later); see [COPYING](COPYING). Every part it is built on is compatible with that licence. The themes named after published games are unofficial, fan-made looks, not affiliated with or endorsed by the owners of those games, and use no text, artwork or logos of theirs.
-
-Idea by lyzio · [lyzio.net](https://lyzio.net)
+Scriptorum is free software under the GNU General Public License, version 3 or later (GPL-3.0-or-later); see [COPYING](COPYING). Every part it is built on is compatible with that licence. The themes named after published games are unofficial, fan-made looks, not affiliated with or endorsed by the owners of those games, and use no text, artwork or logos of theirs
