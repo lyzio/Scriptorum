@@ -12,7 +12,7 @@ Scriptorum is a desktop text processor for game masters who write their own adve
 - **Private.** No account, no tracking. Scriptorum makes no network requests, except to look for and download updates when you ask it to; every update is signed and checked before it is used.
 - **Extensible.** Game systems, themes, languages and palettes are modules. How to write a theme and How to write a game system are in the Help menu.
 
-What each version brings is in the [changelog](CHANGELOG.md).
+What each version brings is in the [changelog](CHANGELOG.md). The author guides, the API reference, the changelog and what is planned or waiting to be tested are also on the documentation website, [lyzio.github.io/Scriptorum](https://lyzio.github.io/Scriptorum/).
 
 ## Download
 

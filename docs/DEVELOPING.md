@@ -86,6 +86,22 @@ npm run build:test
 
 `check` type-checks, `build` writes `scriptorum/ui/dist/app.js`, and `build:test` writes `tests/js/inline.cjs` for the escaping test.
 
+## The documentation website
+
+The website at [lyzio.github.io/Scriptorum](https://lyzio.github.io/Scriptorum/) (design document F24) is built by `.github/workflows/docs.yml` with Zensical, from text that already lives here: the guides from `scriptorum.en/strings/guide-*.json` (the text Help shows), `docs/API.md`, `CHANGELOG.md`, the home page `docs/site/index.md` and the open issues for the Status page. `docs/site/zensical.toml` is the site's configuration and `tools/build_site.py` writes the pages into `build/site/`, which is never committed. Zensical is not one of the app's dependencies; to look at the site on your own machine:
+
+```
+pip install "zensical==0.1.2"
+```
+```
+python tools/build_site.py
+```
+```
+zensical build -f build/site/zensical.toml
+```
+
+The pages are then in `build/site/site/`. Without `--issues` the Status page says the list was not available. The site is rebuilt on every merge into main, whenever an issue is opened, closed, reopened or relabelled, and once a night; it is published only from main, with Settings ▸ Pages ▸ Source set to "GitHub Actions".
+
 ## Layout
 
 | Path | What it is |

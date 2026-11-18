@@ -1,0 +1,74 @@
+# The documentation website (design document F24, 0.7.3, issue #34).
+#
+# This is the site's one configuration. tools/build_site.py copies it, with
+# the pages it makes, into build/site/ and Zensical builds the site there:
+#
+#     python tools/build_site.py --issues issues.json
+#     zensical build -f build/site/zensical.toml
+#
+# Nothing here is edited by hand on the site, and the built pages are never
+# committed (F24: one master copy of each text).
+
+[project]
+site_name = "Scriptorum"
+site_description = "A desktop text processor for game masters who write their own adventures."
+site_url = "https://lyzio.github.io/Scriptorum/"
+repo_url = "https://github.com/lyzio/Scriptorum"
+repo_name = "lyzio/Scriptorum"
+copyright = "Scriptorum is free software under the GNU GPL, version 3 or later. The logo is CC BY-SA 4.0."
+extra_css = ["stylesheets/scriptorum.css"]
+
+# F24: the guides, the API reference, the changelog and Status. The design
+# document and the test plan are not published.
+nav = [
+  { "Home" = "index.md" },
+  { "Guides" = [
+    { "How to write a theme" = "guides/how-to-write-a-theme.md" },
+    { "How to write a game system" = "guides/how-to-write-a-game-system.md" },
+  ] },
+  { "API reference" = "api.md" },
+  { "Changelog" = "changelog.md" },
+  { "Status" = "status.md" },
+]
+
+[project.theme]
+language = "en"
+logo = "assets/logo.png"
+favicon = "assets/logo.png"
+features = [
+  "content.code.copy",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+# F24: light and dark follow the reader's system; the colours are the app's
+# own, set in stylesheets/scriptorum.css (made from the Claret & Ink palette).
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "custom"
+accent = "custom"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "custom"
+accent = "custom"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+md_in_html = {}
+tables = {}
+toc.permalink = true
+pymdownx.highlight.anchor_linenums = true
+pymdownx.inlinehilite = {}
+pymdownx.superfences = {}

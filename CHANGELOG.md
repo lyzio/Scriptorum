@@ -2,7 +2,12 @@
 
 What each version of Scriptorum brings, newest first. The section of a version is also the description of its [GitHub release](https://github.com/lyzio/Scriptorum/releases).
 
-## 0.7.2 — in progress (built in five steps on build/0.7.0, released once; each step has its own number)
+## 0.7.3 — in progress (built in five steps on build/0.7.0, released once; each step has its own number)
+
+### 0.7.3, step 4: the documentation website and the new logo (issue #34)
+
+- **A documentation website** at [lyzio.github.io/Scriptorum](https://lyzio.github.io/Scriptorum/) (issue #34). It holds the two author guides, the API reference, this changelog and a Status page that lists what is planned, what is being looked into and what is waiting to be tested, from the open issues. The guides are the same text Help shows in the app, so the two always agree. The site uses the app's colours and logo, follows the reader's light or dark mode, and has search and a sidebar. It is rebuilt on every merge into main, whenever an issue changes, and once a night. It goes live once 0.7 is merged into main and GitHub Pages is switched on.
+- **The new logo.** The logo is redrawn as line art on a transparent background, and is drawn straight on the window in About, on the welcome screen and in the start-up window, with no card or rounded corners, in light and dark mode alike.
 
 ### 0.7.2, step 3: lists, footnotes, links both ways, pasted labels (issues #5, #4, #17, #2)
 

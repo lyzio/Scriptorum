@@ -671,10 +671,10 @@ body.preview-only .preview-pane { flex: 1; height: 100vh; box-sizing: border-box
 .about-tabs button[aria-selected="true"] { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
 .about-head { display: flex; align-items: center; gap: 14px; }
 .about-head h2 { margin: 0; }
-/* F9 (M6-0.6.10): the logo keeps its parchment ground as a card with rounded corners, in light and dark mode. */
-.logo-card { display: block; border-radius: 12px; border: 1px solid var(--line-strong); box-shadow: 0 2px 8px rgba(29, 28, 25, 0.14); }
-.about-logo { width: 96px; height: 96px; flex: none; }
-.welcome-logo { width: 200px; height: 200px; margin: 0 auto 14px; }
+/* F9 (0.7.3): the line-art logo is drawn straight on the window's background, with no card,
+   border, rounded corners or shadow; one version serves light and dark mode. */
+.about-logo { display: block; width: 96px; height: 96px; flex: none; }
+.welcome-logo { display: block; width: 200px; height: 200px; margin: 0 auto 14px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 /* F9 (M6-0.6.10, issue #16): the window's zoom in the status bar. */
 .st-zoom { border: 1px solid var(--line-strong); border-radius: 4px; background: transparent; color: inherit; font: inherit; padding: 0 6px; cursor: pointer; }

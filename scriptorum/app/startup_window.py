@@ -16,7 +16,7 @@ import json
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QGuiApplication, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
 from scriptorum import paths
@@ -27,25 +27,17 @@ LOGO_SIZE = 120  # F9 (M6-0.6.10): the logo above the name and version
 
 
 def logo_pixmap(size: int = LOGO_SIZE, ratio: float = 1.0) -> Optional[QPixmap]:
-    """F9 (M6-0.6.10): the logo as a card with rounded corners, sharp on a
-    high-resolution screen; None when the picture cannot be read."""
+    """F9 (0.7.3): the line-art logo, drawn straight on the window's background
+    with no card or rounded corners, sharp on a high-resolution screen; None
+    when the picture cannot be read."""
     source = QPixmap(str(paths.UI_DIR / "logo.png"))
     if source.isNull():
         return None
     pixels = max(1, round(size * ratio))
     scaled = source.scaled(pixels, pixels, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-    card = QPixmap(scaled.size())
-    card.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(card)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    path = QPainterPath()
-    radius = 12 * ratio
-    path.addRoundedRect(0, 0, scaled.width(), scaled.height(), radius, radius)
-    painter.setClipPath(path)
-    painter.drawPixmap(0, 0, scaled)
-    painter.end()
-    card.setDevicePixelRatio(ratio)
-    return card
+    scaled.setDevicePixelRatio(ratio)
+    return scaled
+
 
 # Claret & Ink (F16), used when the chosen palette cannot be read yet.
 FALLBACK = {
