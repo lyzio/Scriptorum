@@ -6,7 +6,7 @@ export interface Doc {
 }
 
 export interface Block {
-  type: "heading" | "paragraph" | "element" | "locked" | "table" | "image";
+  type: "heading" | "paragraph" | "element" | "locked" | "table" | "image" | "list";
   sep?: string;
   raw?: string;
   line?: number;
@@ -23,6 +23,9 @@ export interface Block {
   columns?: number;
   header?: string[];
   rows?: string[][];
+  // F4 (0.7.0 step 3, issue #5): lists, bulleted or numbered, up to three levels
+  ordered?: boolean;
+  items?: { level: number; text: string }[];
   // F4.6 images; F17.3 (M5): alt, the description for screen readers
   alt?: string;
   path?: string;
@@ -58,7 +61,9 @@ export interface ElementDef {
   body: "none" | "plain" | "rich" | "blocks";
   allow: string[] | null;
   onlyInside: string[] | null;
-  offered?: boolean; // F7.4 (0.7.0, #20): false for the Columns section on a page with more columns
+  offered?: boolean;
+  /** F4 (issue #2): words a typed label may use for this element, its variants and fields. */
+  pasteLabels?: { names?: string[]; variants?: Record<string, string[]>; fields?: Record<string, string[]> } | null; // F7.4 (0.7.0, #20): false for the Columns section on a page with more columns
   fields: FieldDef[];
   variants: { id: string; label: string }[];
   defaultVariant: string | null;

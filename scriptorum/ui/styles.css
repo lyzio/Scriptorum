@@ -129,6 +129,19 @@ body.blk-menu-held .blk.menu-held > .blk-controls { display: grid; z-index: 20; 
 .rich:focus, .heading-edit:focus { background: color-mix(in srgb, var(--paper) 70%, transparent); box-shadow: 0 0 0 2px var(--accent-tint); }
 .rich:empty::before { content: attr(data-placeholder); color: var(--faint); }
 .heading-edit { font-size: 26px; font-weight: 600; letter-spacing: 0.02em; }
+/* F4 (0.7.0 step 3, issue #5): lists in the Visual editor. */
+.list-edit { display: flex; flex-direction: column; gap: 2px; }
+.list-item { display: flex; align-items: baseline; gap: 6px; }
+.list-item.level-1 { padding-left: 22px; }
+.list-item.level-2 { padding-left: 44px; }
+.list-mark { flex: 0 0 auto; min-width: 1.2em; text-align: right; color: var(--quiet); }
+.list-text { flex: 1 1 auto; }
+/* F7.7 (issue #4): editing a footnote in place. */
+.footnote-edit { position: fixed; z-index: 60; width: min(420px, 90vw); padding: 8px; border-radius: 6px;
+  background: var(--paper); border: 1px solid var(--line-strong); box-shadow: 0 8px 24px rgba(29, 28, 25, 0.16); }
+.footnote-edit .rich { min-height: 3em; border: 1px solid var(--line); }
+.footnote-edit .footnote-edit-label { font-size: 12px; color: var(--quiet); margin-bottom: 4px; }
+.ichip.footnote { cursor: pointer; }
 .heading-edit.level-2 { font-size: 20px; }
 .locked-note { font-family: var(--ui-font); font-size: 11px; color: var(--quiet); margin-bottom: 2px; }
 .locked-code { margin: 0; padding: 8px 10px; background: var(--bar); border: 1px dashed var(--line-strong); border-radius: 6px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; color: var(--ink-2); }
@@ -430,6 +443,9 @@ select.field-input { padding: 4px 6px; }
 .codex-chip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line-strong); border-radius: 12px; padding: 1px 2px 1px 8px; background: var(--accent-tint); }
 .codex-chip-name { border: 0; background: none; padding: 1px 2px; color: var(--accent-ink); cursor: pointer; font-size: 12px; }
 .codex-chip .icon-btn { width: 18px; height: 18px; border-radius: 9px; border: 0; background: none; }
+/* F3 (0.7.0 step 3, issue #17): a link stored on the other entry. */
+.codex-chip.linked-from { border-style: dashed; background: var(--paper); }
+.linked-from-mark { font-size: 11px; color: var(--quiet); font-style: italic; padding: 0 4px; }
 .field-codex { max-width: 100%; }
 .field-ref-row { display: flex; gap: 6px; align-items: center; }
 .new-look { margin-left: 8px; }

@@ -1,42 +1,41 @@
-# Scriptorum 0.7.0 step 2 — Changes
+# Scriptorum 0.7.2 (0.7.0 step 3) — Changes
 
-Base: **0.7.0 step 1** (the internal API, on `build/0.7.0`, confirmed by the project manager on 18 November 2026). The second of five steps of 0.7.0 on the branch `build/0.7.0`: themes for every game system (issue #23), the Columns section (issue #20) and the preview following the editor (issue #21). Outcomes approved on 18 November 2026 and written into the design document (F8, F7.2, F7.4).
+Base: **0.7.1** (0.7.0 step 2, on `build/0.7.0`, tested by the project manager on 18 November 2026: 392 passed). The third of five steps of 0.7.0 on the branch `build/0.7.0`, the first with its own number (decided 18 November 2026): lists in the Visual editor (issue #5), footnotes edited in place (issue #4), links between codex entries both ways (issue #17) and pasted labels removed when converting (issue #2). Outcomes approved on 18 November 2026 and written into the design document (F4, F7.7, F3).
 
-- **#23**: a theme is offered for every game system whose blocks it styles (template coverage). A theme that misses a template is shown greyed out with the reason. A theme can name the game system it was `made_for`, which only orders the list. The Vaesen theme no longer requires the Vaesen game system.
-- **#20**: a new core layout element, Columns section, with a Columns field of 2 or 3, offered only on a one-column page.
-- **#21**: the preview follows the block the editor is in, with a Follow switch in the zoom bar, remembered; it pauses for 2 seconds after the preview is scrolled by hand.
-- found on the way: the Insert menu now lists Full-width section, Never split and Table of contents under Layout, as the + menu does.
+- **#5**: a list block in the core (`- item`, `+ item`, up to three levels) and a list editor: Enter, Tab, Shift+Tab, Enter on an empty item, Backspace, bulleted or numbered from right-click and Format, Insert ▸ List.
+- **#4**: a click on a footnote chip opens a box with its text; Enter or a click outside saves, Esc cancels. The footnote's text is inline markup from now on, so bold and italic print.
+- **#17**: a link on one entry's Linked to shows, and prints, on the other entry's Linked to too, marked as set on that entry; removing it there removes the stored link.
+- **#2**: Convert to removes a typed label and a list marker, sets a variant named by its label, and fills the fields named on the lines after it. The words come from the element's names and field labels plus an optional `paste_labels` list in its definition (English and Swedish for the core elements).
+- The README and the 0.7.0 changelog say the Windows installer was tested with 0.6.9 and works (the project manager, 18 November 2026).
 
-The file formats, the API version (1.0), the installers and the release process are unchanged. Issues: Refs #20, #21, #23.
+The file format, the API version (1.0), the installers and the release process are unchanged. Issues: Refs #5, #4, #17, #2.
 
 ## Added
 
 | File | Why |
 |---|---|
-| `scriptorum/bundled/scriptorum.core/elements/column-section.json` | The Columns section element (F7.4, #20) |
-| `scriptorum/bundled/scriptorum.en/strings/theme.json` | The locked-theme reason and the names of the theme's own pages (#23) |
-| `tests/test_step2.py` | T-LOOK-13, T-BUILD-33, T-UI-53, T-UI-54 |
+| `tests/test_step3.py` | T-SRC-21 (3), T-WORLD-36, T-UI-55, T-UI-56, T-UI-57 (2) |
 
 ## Changed
 
 | File | Why |
 |---|---|
-| `scriptorum/core/modules.py` | `game_system_blocks`, `theme_missing`, `theme_offered_for` by coverage, `theme_made_for` (#23) |
-| `scriptorum/core/session.py` | Game systems list their offered and locked themes; `kind_name`, `themes_locked`; the editor knows whether Columns section is offered; a locked version of the same theme can still be previewed (#20, #23) |
-| `scriptorum/core/modmanager.py` | A theme without a generic frame is refused only if it is offered for no installed game system (#23) |
-| `scriptorum/core/appsettings.py` | `preview_follow`, on by default (#21) |
-| `scriptorum/bundled/scriptorum.vaesen/module.json` | `made_for` the Vaesen game system instead of requiring it (#23) |
-| `scriptorum/bundled/scriptorum.core/labels/en.json` | The names "Columns section" and "Columns" (#20) |
-| `scriptorum/bundled/scriptorum.core/typst/elements.typ` | The `column-section` template (#20) |
-| `scriptorum/bundled/scriptorum.en/strings/settings.json` | The locked theme line; the old "general" hint removed (#23) |
-| `scriptorum/bundled/scriptorum.en/strings/zoom.json` | Follow and its hint (#21) |
-| `scriptorum/bundled/scriptorum.en/strings/guide-theme.json`, `guide-game-system.json` | Regenerated from the guides |
-| `tools/guides/how-to-write-a-theme.md`, `how-to-write-a-game-system.md` | Which game systems a theme is offered for, and `made_for` (#23) |
-| `ui-src/app.ts`, `editor.ts`, `model.ts` | Locked themes greyed out; Columns section only where offered and under Layout; following the editor (#20, #21, #23) |
-| `scriptorum/ui/index.html`, `styles.css`, `dist/app.js` | The Follow switch, the mark, the rebuilt interface |
-| `tests/scenarios/run_use_scenarios.py` | The Vaesen theme now stays with Plain (#23); the preview follows (#21) |
-| `tests/test_ui_smoke.py`, `test_modules.py`, `test_m4.py`, `test_m5.py`, `test_m5e.py`, `test_m6e.py`, `test_ui_m4.py`, `test_ui_m5.py` | Corrected because the design changed: themes offered by coverage, a new always-on element, the Follow switch (see TEST-REPORT.md) |
-| `CHANGELOG.md`, `CHANGES.md`, `TEST-REPORT.md` | Step 2 |
+| `scriptorum/__init__.py`, `pyproject.toml`, `ui-src/package.json` | Version 0.7.2 |
+| `scriptorum/core/source.py` | The list block: `parse_list`, `list_text`; words of lists counted (#5) |
+| `scriptorum/core/session.py` | Find and replace and the preview's element order see list items (#5); `linkedFrom` in an entry's information (#17); the elements' paste labels sent to the editor (#2) |
+| `scriptorum/core/world.py` | `link_field`, `links_from_others`; the build's entries carry links both ways (#17); codex references in lists (#5) |
+| `scriptorum/bundled/scriptorum.core/elements/*.json` (scene, read-aloud, information, person, creature, handout, box) | `paste_labels`, English and Swedish (#2) |
+| `scriptorum/bundled/scriptorum.core/typst/elements.typ` | A footnote's text is printed as markup, with straight quotes kept (#4) |
+| `scriptorum/bundled/scriptorum.en/strings/editor.json`, `codex.json` | List, List item, Bulleted list, Numbered list; "set on that entry" (#5, #17) |
+| `tools/guides/how-to-write-a-game-system.md`, `strings/guide-game-system.json` | `paste_labels` in an element's definition (#2) |
+| `ui-src/editor.ts` | The list editor, footnote editing, label removal in Convert to (#5, #4, #2) |
+| `ui-src/app.ts` | List in the Insert menu, the + menu, right-click and Format; footnote typed text escaped and its chip labelled from its markup; test hooks `doc` and `focusedKind` (#5, #4) |
+| `ui-src/world.ts` | Links from other entries in Linked to, with × (#17) |
+| `ui-src/inline.ts`, `ui-src/model.ts` | A chip carries its kind as a class; the list block and paste labels in the model |
+| `scriptorum/ui/styles.css`, `dist/app.js`, `tests/js/inline.cjs` | Styles for lists, the footnote box and links from other entries; the rebuilt interface |
+| `tests/scenarios/run_use_scenarios.py` | T-USE-01 checks that the labels went; T-USE-02 writes a list and edits a footnote |
+| `tests/test_source.py`, `test_m6c2.py`, `test_ui_m2.py`, `test_m6f.py`, `test_m6d.py` | Corrected because the design changed (see TEST-REPORT.md) |
+| `README.md`, `CHANGELOG.md`, `CHANGES.md`, `TEST-REPORT.md` | 0.7.2; the Windows installer tested with 0.6.9 |
 
 ## Deleted
 

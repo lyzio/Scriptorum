@@ -484,7 +484,8 @@ def test_T_UI_50_plus_menu_in_groups(ui):
         assert headings == [h for h in ORDER if h in headings]
         assert headings[:3] == ["Text", "Structure", "Boxes"] and "People" in headings and "Rules" in headings
         columns = {c[0]: c[1:] for c in top}
-        assert [x.rstrip("…") for x in columns["Text"]] == ["Paragraph", "Table", "Image", "Footnote"]
+        # Corrected for 0.7.0 step 3 (issue #5): List joins the Text group.
+        assert [x.rstrip("…") for x in columns["Text"]] == ["Paragraph", "List", "Table", "Image", "Footnote"]
         assert columns["Layout"] == ["Table of contents", "Full-width section", "Never split"]
         assert "Other" not in columns          # the bundled game systems add no element outside the groups
         assert columns["Boxes"][:3] == ["Read-aloud", "Secret", "Public information"]

@@ -9,8 +9,8 @@ import iconCornersIn from "./icons/corners-in.svg";
 import iconCornersOut from "./icons/corners-out.svg";
 import { aboutTest, initAbout, openAbout } from "./about";
 import { dragging, DropTarget, startDrag } from "./drag";
-import { EditorHooks, isSubHeading, kindOf, Place, SourceEditor, SUB_HEADINGS, VisualEditor } from "./editor";
-import { escapeInline, setChipLabeler, setInlineKinds } from "./inline";
+import { EditorHooks, footnoteText, isSubHeading, kindOf, Place, SourceEditor, SUB_HEADINGS, VisualEditor } from "./editor";
+import { escapeInline, inlineToPlain, setChipLabeler, setInlineKinds } from "./inline";
 import { Block, Chapter, Doc, ElementDef, isDoc, OutlineItem } from "./model";
 import { Spelling } from "./spell";
 import {
@@ -645,6 +645,9 @@ function menuModel(): { key: string; items: MenuItem[] }[] {
     { key: "menu.format", items: [
       { label: t("toolbar.bold"), action: () => document.execCommand("bold"), shortcut: "Ctrl+B", disabled: !has || ro },
       { label: t("toolbar.italic"), action: () => document.execCommand("italic"), shortcut: "Ctrl+I", disabled: !has || ro },
+      // F4 (issue #5): the list at the cursor, bulleted or numbered.
+      { label: t("editor.toBulleted"), action: () => listKind(false), disabled: !has || ro || focusedList()?.ordered !== true },
+      { label: t("editor.toNumbered"), action: () => listKind(true), disabled: !has || ro || focusedList()?.ordered !== false },
       { label: t("menu.style"), disabled: !has || ro, children:
         styleKinds().map((kind) => ({ label: kindLabel(kind), action: () => setStyle(kind) })) },
     ] },
@@ -666,6 +669,18 @@ function menuModel(): { key: string; items: MenuItem[] }[] {
   ];
 }
 
+/** The list holding the cursor, if any (F4, issue #5). */
+function focusedList(): Block | null {
+  const place = visual.focused();
+  const block = place ? place.list.blocks[place.index] : null;
+  return block && block.type === "list" ? block : null;
+}
+
+function listKind(ordered: boolean): void {
+  const place = visual.focused();
+  if (place) visual.setListKind(place, ordered);
+}
+
 function kindLabel(kind: string): string {
   if (kind === "paragraph") return t("editor.paragraph");
   if (kind === "heading") return t("editor.actHeading");
@@ -675,13 +690,14 @@ function kindLabel(kind: string): string {
   if (kind === "heading-4") return t("editor.subHeading2");
   if (kind === "heading-5") return t("editor.subHeading3");
   if (kind === "table") return t("editor.table");
+  if (kind === "list") return t("editor.list");
   if (kind === "image") return t("editor.image");
   return state.defs.find((d) => d.id === kind)?.name ?? kind;
 }
 
 function insertItems(kinds?: string[], onPick?: (kind: string) => void): MenuItem[] {
   const pick = onPick ?? ((kind: string) => insert(kind));
-  const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside && d.offered !== false).map((d) => d.id), "table", "image"];
+  const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside && d.offered !== false).map((d) => d.id), "list", "table", "image"];
   const items: MenuItem[] = [];
   for (const kind of ["paragraph", "heading", ...SUB_HEADINGS, "scene-end"]) {
     if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
@@ -698,7 +714,7 @@ function insertItems(kinds?: string[], onPick?: (kind: string) => void): MenuIte
     // F3 (M6 part C4): Insert ▸ Clue adds a clue as Information.
     if (def.id === "information" && pickerType("clue")) items.push({ label: t("menu.insertClue"), action: () => pick("clue") });
   }
-  for (const kind of ["table", "image"]) {
+  for (const kind of ["list", "table", "image"]) {
     if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
   }
   // The layout markers under their own heading, as in the + menu (F9, F7.4).
@@ -720,7 +736,7 @@ function groupedInsertItems(kinds: string[], pick: (kind: string, variant?: stri
   const used = new Set<string>();
   const columns: { label: string; items: MenuItem[] }[] = [];
   const text: MenuItem[] = [];
-  for (const kind of ["paragraph", "table", "image", "footnote"]) {
+  for (const kind of ["paragraph", "list", "table", "image", "footnote"]) {
     if (!kinds.includes(kind)) continue;
     used.add(kind);
     const def = state.defs.find((d) => d.id === kind);
@@ -1238,7 +1254,8 @@ async function insert(kind: string, place?: Place | null, variant?: string): Pro
       getSelection()?.removeAllRanges();
       getSelection()?.addRange(range);
     }
-    if (!visual.insertInline(`#footnote(text: ${JSON.stringify(answer.text.trim())})`)) flashStatus(t("codex.placeCursor"));
+    // From 0.7.0 step 3 (issue #4) the text is inline markup, so what is typed is escaped.
+    if (!visual.insertInline(`#footnote(text: ${JSON.stringify(escapeInline(answer.text.trim()))})`)) flashStatus(t("codex.placeCursor"));
     return;
   }
     if (def?.inlineForm === "call" && place === undefined) {
@@ -1334,6 +1351,12 @@ function openContextMenu(event: MouseEvent, place: Place): void {
     if (block?.type === "element" && block.kind !== "card" && state.defs.some((d) => d.id === "card") &&
         codex.types.some((x) => x.card === block.kind)) {
       items.push({ label: t("codex.toEntry"), action: () => convertToCodex(place) });
+    }
+    // F4 (0.7.0 step 3, issue #5): a list switches between bulleted and numbered.
+    if (block?.type === "list") {
+      items.push(block.ordered
+        ? { label: t("editor.toBulleted"), action: () => visual.setListKind(place, false) }
+        : { label: t("editor.toNumbered"), action: () => visual.setListKind(place, true) });
     }
     // F4 (M6 part C): Raise and Lower a sub-heading, one level at a time;
     // Lower only where it would not skip a level.
@@ -2814,7 +2837,7 @@ async function boot(): Promise<void> {
   setChipLabeler((kind, args) => {
     if (kind === "footnote") {
       // F7.7 (M5): a footnote chip shows the start of its text.
-      const text = /text:\s*"((?:[^"\\]|\\.)*)"/.exec(args)?.[1] ?? "";
+      const text = inlineToPlain(footnoteText("#footnote(" + args + ")"));
       return "\u2020 " + (text.length > 28 ? text.slice(0, 28) + "\u2026" : text);
     }
     if (kind !== "mention" && kind !== "see") return null;
@@ -3024,6 +3047,7 @@ async function boot(): Promise<void> {
     words: state.chapter?.words ?? 0,
     info: state.info,
     tabs: state.tabs,
+    doc: visual.current(),
     status: ["st-line", "st-page", "st-words", "st-problems", "st-export"].map((id) => $(id).textContent),
   }),
   flush,
@@ -3083,6 +3107,7 @@ async function boot(): Promise<void> {
   switchTab,
   closeTab,
   kindOf,
+  focusedKind: () => { const p = visual.focused(); const b = p ? p.list.blocks[p.index] : null; return b ? kindOf(b) + (b.type === "list" ? (b.ordered ? ":ordered" : ":bulleted") : "") : null; },
   isDoc,
   dropImage: async (name: string, base64: string) => {
     const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));

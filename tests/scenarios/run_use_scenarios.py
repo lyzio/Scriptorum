@@ -299,18 +299,24 @@ def use_01(window: MainWindow) -> dict:
     s.check("person converted", convert("PERSON: Lovisa Berg", "Person"))
     s.check("scene 2 converted (it starts a new scene)", convert("Scene 2: The chapel", "Scene"))
     s.check("hint converted", convert("HINT: The chapel's records", "Information"))
-    s.act("Hint type", "window.__u.select('.el-information .variant-select', -1, 'hint')")
     s.flush()
+    # 0.7.2 (0.7.0 step 3, issue #2): the typed labels went with the conversion.
+    pasted = s.state()["text"]
+    s.check("the scene is titled “The harbour” (#2)", '#scene(title: "The harbour"' in pasted)
+    s.check("Location and Present filled the scene's fields (#2)", 'location: "Skärvik harbour, early morning"' in pasted and "Location:" not in pasted)
+    s.check("the person is named “Lovisa Berg”, with Mood and Description (#2)", '#person(name: "Lovisa Berg", mood: "Tired and stubborn"' in pasted)
+    s.check("the secret starts with its text, and HINT made a hint (#2)", "SECRET:" not in pasted and "HINT:" not in pasted
+            and '#information(variant: "hint")[The chapel' in pasted)
     st = s.state()
     s.check("outline shows the act and both scenes", [o["title"] for o in st["outline"]][:3] == ["THE BELL OF SKÄRVIK", "Act one: The silent bell", "Scene 1: The harbour"] or
             [o["kind"] for o in st["outline"]].count("scene") == 2)
+    s.note("friction", "The person's lines \u201cShe knows (public): \u2026\u201d stay as paragraphs after converting; they would have to become Information inside the card by hand.", "later")
     s.check("no build errors", st["errors"] == [])
     reply = json.loads(window.bridge.exportTo(str(OUT / "T-USE-01-pasted.pdf")))
     s.steps += 1
     s.log.append(f"{s.steps:>3}. Export PDF (second route) -> ok={reply.get('ok')}")
     s.check("PDF exported by the second route", bool(reply.get("ok")))
     (OUT / "T-USE-01-pasted.typ").write_text(s.state()["text"], "utf-8")
-    s.note("friction", "After converting pasted lines, the labels typed in the original text stay in the text: a scene is titled “Scene 1: The harbour”, a person “PERSON: Lovisa Berg” and Information starts with “SECRET:”. The Location and Present lines stay as paragraphs and have to be moved into the scene's fields by hand.", "later (import, L3)")
     s.shot("pasted")
     return s.summary()
 
@@ -447,6 +453,7 @@ def use_02(window: MainWindow) -> dict:
     update_steps(s, window)
     game_system_steps(s, window)
     fix_0610_steps(s, window)
+    step3_steps(s, window)
     return s.summary()
 
 
@@ -958,6 +965,43 @@ def game_system_steps(s: Scenario, window: MainWindow) -> None:
     s.act("Click into the last scene", "window.__u.focus('#visual .el-scene .rich', document.querySelectorAll('#visual .el-scene .rich').length - 1)", 500)
     s.check("the preview shows a mark where the editor is (#21)", bool(s.js("!!document.querySelector('#preview-pane .follow-mark')")))
     s.shot("preview-follows")
+
+
+def step3_steps(s: Scenario, window: MainWindow) -> None:
+    """0.7.2 (0.7.0 step 3) steps of T-USE-02: the Game Master writes a
+    list of what the characters find, makes one item a sub-item, writes a
+    footnote and changes it in place."""
+    key = """((sel, i, key, shift) => { const el = window.__u.q(sel, i); el.focus();
+        const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+        getSelection().removeAllRanges(); getSelection().addRange(r);
+        el.dispatchEvent(new KeyboardEvent('keydown', {key, shiftKey: shift, bubbles: true, cancelable: true})); return true; })"""
+    s.act("Click into the first scene", "window.__u.focus('#visual .el-scene .rich', 0)")
+    insert_from_menu(s, "List")
+    s.check("a list to type in appears (#5)", bool(s.js("!!document.activeElement.closest('.list-edit')")))
+    s.act("Type the first item", "window.__u.type('#visual .list-text', -1, 'A wet rope')")
+    s.act("Enter", key + "('#visual .list-text', -1, 'Enter', false)", 400)
+    s.act("Type the second item", "window.__u.type('#visual .list-text', -1, 'with a sailor’s knot')")
+    s.act("Tab makes it a sub-item", key + "('#visual .list-text', -1, 'Tab', false)", 400)
+    s.flush()
+    s.check("the source has the list with a sub-item (#5)", "- A wet rope\n  - with a sailor’s knot" in s.state()["text"])
+    s.shot("list")
+    s.act("Write a footnote in the first paragraph", "window.__u.focus('#visual .el-scene .para', 0)")
+    s.act("…at the end of its text", """(() => { const el = window.__u.q('#visual .el-scene .para', 0);
+        const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+        getSelection().removeAllRanges(); getSelection().addRange(r); return true; })()""")
+    s.js('(() => { window.__scriptorum.flush(); return true; })()')
+    s.act("Insert the footnote", """(() => { const el = window.__u.q('#visual .el-scene .para', 0);
+        const holder = document.createElement('span'); holder.innerHTML = '<span class="ichip footnote" contenteditable="false" data-src="#footnote(text: &quot;Written in 1871.&quot;)">† Written in 1871.</span>';
+        el.append(holder.firstChild); el.dispatchEvent(new Event('input', {bubbles: true})); return true; })()""", 600)
+    s.act("Click the footnote's chip", "window.__u.click('#visual .ichip.footnote')", 300)
+    s.check("a box shows the footnote's text (#4)", s.js("document.querySelector('.footnote-edit .rich')?.textContent") == "Written in 1871.")
+    s.act("Change the year, with a bold word", """(() => { const b = document.querySelector('.footnote-edit .rich');
+        b.innerHTML = 'Written in <b>1872</b>.'; b.dispatchEvent(new Event('input', {bubbles: true})); return true; })()""")
+    s.shot("footnote-edit")
+    s.act("Enter", "document.querySelector('.footnote-edit .rich').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true}))", 600)
+    s.flush()
+    s.check("the footnote is changed in the text (#4)", '#footnote(text: "Written in *1872*.")' in s.state()["text"])
+    s.check("it still builds", s.state()["errors"] == [])
 
 
 def fix_0610_steps(s: Scenario, window: MainWindow) -> None:

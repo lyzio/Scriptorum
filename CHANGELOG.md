@@ -2,23 +2,30 @@
 
 What each version of Scriptorum brings, newest first. The section of a version is also the description of its [GitHub release](https://github.com/lyzio/Scriptorum/releases).
 
-## 0.7.0 — in progress (built in five steps on build/0.7.0, released once)
+## 0.7.2 — in progress (built in five steps on build/0.7.0, released once; each step has its own number)
 
-### Step 2: themes, Columns section, the preview follows (issues #23, #20, #21)
+### 0.7.2, step 3: lists, footnotes, links both ways, pasted labels (issues #5, #4, #17, #2)
+
+- **Lists in the Visual editor** (issue #5). A bulleted or numbered list is shown as a list to type in, no longer as a locked block. Enter adds an item, Enter on an empty item ends the list, Tab and Shift+Tab change an item's level (up to three), and Backspace on an empty item removes it. Right-click or Format switches a list between bulleted and numbered; Insert ▸ List (and List in the + menu's Text group) adds one. The text stays Typst's own `- item` and `+ item`. A list with something the editor cannot show, such as a table inside an item, stays a locked block.
+- **Footnotes edited in place** (issue #4). Click a footnote's chip to change its text in a small box, bold and italic included. Enter or a click outside saves; Esc cancels.
+- **Links between codex entries go both ways** (issue #17). A link added on one entry's Linked to shows on the other entry's Linked to too, marked as set on that entry, and both printed cards list it. It is stored once; removing it on either side removes it.
+- **Pasted labels go when converting** (issue #2). When a pasted line becomes an element, a typed label at its start ("Scene 1:", "SECRET:", "[Publikt]", "PERSON:") and a list marker are removed, and a variant label sets the variant. The lines right after it that start with one of the element's field labels ("Location:", "Present:", "Mood:", "Description:", "Linked to:") fill those fields. Names of codex entries that exist are linked; other names stay as text until the codex upgrade offers to link them. English and Swedish labels are recognised. One undo brings everything back.
+
+### 0.7.1, step 2: themes, Columns section, the preview follows (issues #23, #20, #21)
 
 - **Every theme with every game system** (issue #23). A theme is offered for every game system whose blocks it styles, so the Vaesen theme can be used with Plain and the general themes with Vaesen. A theme that lacks a template for a block of the game system is shown greyed out in File ▸ New adventure… and on the settings page, with the reason (for example "no styling for: Rumour"). Changing the game system now keeps the theme when it still fits.
 - **Columns section** (issue #20). On a one-column page, Insert ▸ Layout ▸ Columns section (also in the + menu) sets the blocks inside it in 2 or 3 columns, right where it is written; the text after it is one column again. It is not offered on a two-column page.
 - **The preview follows the editor** (issue #21). When you move to another block in the editor, the preview scrolls to it, about a third from the top, with a short mark beside it. The Follow switch in the preview's zoom bar turns this off, and is remembered. Scrolling the preview yourself pauses following for two seconds. Clicking in the preview still moves the editor to that place.
 - **Fixed on the way:** in the Insert menu, Full-width section, Never split and Table of contents now sit under Layout, as they do in the + menu.
 
-### Step 1: the internal API (issue #29)
+### 0.7.0, step 1: the internal API (issue #29)
 
 - **Nothing changes for you.** Scriptorum looks and works exactly as before; this step reorganises how the interface talks to the core.
 - **One layer between the core and everything that uses it** (design document F23): `scriptorum/api/`, with its operations grouped by area (app, adventure, codex, build, modules). Every operation takes and returns plain data, and a refusal comes back as a plain message, never a raw error. The window's bridge now keeps only what needs Qt (dialogs, windows, timers) and passes everything else to the API. Extension modules (issue #27) will use the same API later.
 - **The API has its own version, 1.0,** and is described in `docs/API.md`. A test fails if its operations change without a new version.
 - **One network gate.** The update check and the update download, still the only network requests Scriptorum makes and only when you ask, now go through one function; nothing else in the app can reach the network.
 - **Fixed on the way:** opening a file that does not exist (for example from Open recent after it was moved) now says so plainly instead of failing without a word.
-- **The Windows installer has not been tested yet.** If you try it, please report anything that does not work as an [issue](https://github.com/lyzio/Scriptorum/issues).
+- **The Windows installer was tested with 0.6.9 and works** (reported by the project manager on 18 November 2026). 0.7 has not been tried on Windows yet; please report anything that does not work as an [issue](https://github.com/lyzio/Scriptorum/issues).
 
 ## 0.6.10 — 18 November 2026 (Milestone 6, fix build)
 

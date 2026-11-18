@@ -160,10 +160,14 @@ def test_T_REL_11_release_description_from_the_changelog():
     spec.loader.exec_module(tool)
     version = __import__("scriptorum").__version__
     section = tool.changelog_section(version)
-    assert section and "Windows installer has not been tested yet" in section
+    # Corrected for 0.7.2: the section says how far the Windows installer has
+    # been tested (with 0.6.9), no longer that it has not been tested.
+    assert section and "Windows installer was tested with 0.6.9" in section
     assert not section.startswith("## ") and "\n## " not in section
     assert tool.changelog_section("9.9.9") == ""
     command = tool.publish_commands(version, ["a.zip"], "Note.", exists=False, notes_file=Path("notes.md"))[0]
     assert command[-2:] == ["--notes-file", "notes.md"]
     readme = (ROOT / "README.md").read_text("utf-8")
-    assert "## What " not in readme and "CHANGELOG.md" in readme and "Not yet tested" in readme
+    # Corrected for 0.7.2: the Windows installer was tested with 0.6.9, so the
+    # README no longer says "Not yet tested"; it names the version tested.
+    assert "## What " not in readme and "CHANGELOG.md" in readme and "Tested with 0.6.9" in readme

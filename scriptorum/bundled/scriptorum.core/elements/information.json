@@ -46,5 +46,28 @@
   "inline_editor": "chip",
   "shortcut": null,
   "body_required": true,
-  "toolbar_group": "boxes"
+  "toolbar_group": "boxes",
+  "paste_labels": {
+    "names": [
+      "Information",
+      "Info"
+    ],
+    "variants": {
+      "secret": [
+        "Secret",
+        "Hemligt",
+        "Hemlig"
+      ],
+      "public": [
+        "Public",
+        "Publikt",
+        "Offentligt"
+      ],
+      "hint": [
+        "Hint",
+        "Ledtråd",
+        "Tips"
+      ]
+    }
+  }
 }

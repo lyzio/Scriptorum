@@ -77,5 +77,9 @@
   "endScene": "End of scene",
   "sceneEndLine": "End of scene",
   "reason.notInScene": "Put the cursor inside a scene to end it there.",
-  "onlyHandoutTag": "Only as handout"
+  "onlyHandoutTag": "Only as handout",
+  "list": "List",
+  "listItem": "List item",
+  "toBulleted": "Bulleted list",
+  "toNumbered": "Numbered list"
 }

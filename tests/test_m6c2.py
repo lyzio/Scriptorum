@@ -647,13 +647,14 @@ def test_T_UI_38_keys_at_container_edges(ui):
     bottom of a container Alt+↑ / Alt+↓ and the ↑ ↓ buttons step out of it."""
     text_with_list_after_box = BOXES.replace(TABLE + "\n\n", "").replace("]\n\n- First item", "]\n\n- First item")
     load(ui, text_with_list_after_box)
-    # A list is kept as a locked block in the editor; it moves like any block.
-    listing = "[...document.querySelectorAll('#visual section.blk-locked')].find(s => s.textContent.includes('First item'))"
+    # A list moves like any block. Corrected for 0.7.0 step 3 (issue #5):
+    # it is a list block now, no longer a locked one.
+    listing = "[...document.querySelectorAll('#visual section.blk-listing')].find(s => s.textContent.includes('First item'))"
     original = text(ui)
-    keydown(ui, f"{listing}.querySelector('.locked-code')", "ArrowRight", altKey=True)
+    keydown(ui, f"{listing}.querySelector('.list-text')", "ArrowRight", altKey=True)
     inside = text(ui)
     assert order(inside, '#box(title: "Rules")[', "Box text.", "- First item", "]\n\n#person")
-    keydown(ui, f"{listing}.querySelector('.locked-code')", "ArrowLeft", altKey=True)
+    keydown(ui, f"{listing}.querySelector('.list-text')", "ArrowLeft", altKey=True)
     assert text(ui) == original
     # At the top of the Box, Alt+↑ steps out to just before it.
     keydown(ui, "window.__blk('Box text.').querySelector('.rich')", "ArrowUp", altKey=True)

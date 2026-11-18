@@ -325,6 +325,8 @@ class World:
         texts = []
         if btype in ("heading", "paragraph"):
             texts.append(block.get("text", ""))
+        elif btype == "list":
+            texts.extend(item.get("text", "") for item in block.get("items", []))
         elif btype == "table":
             for row in [block.get("header", []), *block.get("rows", [])]:
                 texts.extend(row)
@@ -388,6 +390,32 @@ class World:
                 value = entry["fields"].get(f["name"])
                 links.extend(value if isinstance(value, list) else [value] if value else [])
         return links
+
+    def link_field(self, type_id: str) -> Optional[str]:
+        """The first Linked to field (kind link) of a codex type, or None."""
+        for f in self.types().get(type_id, {}).get("fields", []):
+            if f.get("kind") == "link":
+                return f["name"]
+        return None
+
+    def links_from_others(self, entry_id: str) -> List[dict]:
+        """F3 (0.7.0 step 3, issue #17): links stored on other entries' Linked
+        to that point at this one and that this entry does not store itself.
+        They are shown, and printed, on this entry's Linked to too."""
+        entries = self.entries()
+        own = entries.get(entry_id)
+        if own is None or self.link_field(own["type"]) is None:
+            return []
+        mine = set(self._links_of(own))
+        out = []
+        for e in entries.values():
+            field = self.link_field(e["type"])
+            if e["id"] == entry_id or e["id"] in mine or field is None:
+                continue
+            value = e["fields"].get(field)
+            if entry_id in (value if isinstance(value, list) else [value] if value else []):
+                out.append({"id": e["id"], "title": e["title"], "type": e["type"], "field": field})
+        return out
 
     def backlinks(self, entry_id: str) -> List[dict]:
         """F3.6: entries that link to this one, computed, never stored."""
@@ -870,6 +898,21 @@ class World:
         return out
 
     # --- data for the build (3.3) ------------------------------------------------------
+    def _entries_both_ways(self, entries: dict) -> dict:
+        """F3 (issue #17): each entry as the build sees it, its Linked to
+        holding the links stored on other entries too, each once. The
+        relationship chart reads the stored links, so it draws one line."""
+        out = {}
+        for i, e in entries.items():
+            fields = dict(e["fields"])
+            field = self.link_field(e["type"])
+            extra = [x["id"] for x in self.links_from_others(i)] if field else []
+            if extra:
+                value = fields.get(field)
+                fields[field] = (value if isinstance(value, list) else [value] if value else []) + extra
+            out[i] = {"id": i, "type": e["type"], "title": e["title"], "fields": fields}
+        return out
+
     def build_data(self, mode: str, settings: dict, handwriting: Iterable[str] = ()) -> dict:
         types = self.types()
         entries = self.entries()
@@ -903,7 +946,7 @@ class World:
         end = (settings or {}).get("end_matter", {}) or {}
         return {
             "mode": mode,
-            "entries": {i: {"id": i, "type": e["type"], "title": e["title"], "fields": e["fields"]} for i, e in entries.items()},
+            "entries": self._entries_both_ways(entries),
             "types": {i: {"name": t["name"], "card": t["card"], "title_field": t["title_field"],
                           "fields": [{"name": f["name"], "kind": f.get("kind"), "label": self.labels.get(f.get("label", ""), f.get("label", f["name"]))}
                                      for f in t["fields"]]} for i, t in types.items()},

@@ -726,7 +726,10 @@
     footnote: (text: none) => {
       _required("footnote", "text", text)
       _mark("footnote")
-      std.footnote(text)
+      // From 0.7.0 step 3 (issue #4) the text is inline markup: bold and
+      // italic print; plain text prints as before.
+      // Straight quotes stay straight, as a plain-text footnote printed them.
+      std.footnote({ set smartquote(enabled: false); eval(text, mode: "markup") })
     },
     full-width: full-width,
     keep-together: keep-together,

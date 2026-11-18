@@ -430,6 +430,8 @@ class Session:
             if use["where"] == "text" and use.get("scene") and use["scene"] not in scenes:
                 scenes.append(use["scene"])
         return {**entry, "backlinks": w.backlinks(entry_id), "scenes": scenes, "pages": pages,
+                # F3 (0.7.0 step 3, issue #17): links stored on other entries, shown here too.
+                "linkedFrom": w.links_from_others(entry_id),
                 "usages": w.usages(entry_id),
                 # F3 (M6 part C4): a Clue entry shows who knows it.
                 "knownBy": w.clue_knowers(entry_id) if entry["type"] == "clue" else []}
@@ -914,6 +916,8 @@ class Session:
                 "newLook": bool(d.get("new_look")),
                 "codexRef": d.get("codex_ref"),
                 "offered": one_column or not d.get("only_one_column"),
+                # F4 (0.7.0 step 3, issue #2): typed labels removed when converting.
+                "pasteLabels": d.get("paste_labels"),
             })
         return {"elements": elements}
 
@@ -1721,6 +1725,10 @@ def _text_slots(doc: dict, kinds: Dict[str, dict]):
         btype = block["type"]
         if btype in ("heading", "paragraph"):
             yield block, "text", block.get("text", "")
+        elif btype == "list":
+            # F4 (issue #5): every item of a list.
+            for i, item in enumerate(block.get("items", [])):
+                yield block, ("item", i), item.get("text", "")
         elif btype == "table":
             for c, cell in enumerate(block.get("header", [])):
                 yield block, ("cell", -1, c), cell
@@ -1745,6 +1753,8 @@ def _set_slot(block: dict, where, value: str) -> None:
     elif where[0] == "field":
         block["fields"][where[1]] = value
         block.pop("head_raw", None)
+    elif where[0] == "item":
+        block["items"][where[1]]["text"] = value
     elif where[0] == "cell":
         if where[1] == -1:
             block["header"][where[2]] = value
@@ -1777,6 +1787,9 @@ def _element_order(blocks, path, kinds, inline) -> List[dict]:
         btype = block["type"]
         if btype in ("heading", "paragraph"):
             order += [{"kind": k, "path": here} for k in _inline_calls(block.get("text", ""), inline)]
+        elif btype == "list":
+            for item in block.get("items", []):
+                order += [{"kind": k, "path": here} for k in _inline_calls(item.get("text", ""), inline)]
         elif btype == "table":
             for row in [block.get("header", []), *block.get("rows", [])]:
                 for cell in row:

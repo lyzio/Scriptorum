@@ -543,7 +543,8 @@
     const face = /face:\s*(\d+)/.exec(args);
     const custom = m && chipLabeler ? chipLabeler(m[1], args) : null;
     const label = custom ?? (face ? "\u2684 " + face[1] : "\u2684 " + (value ? value[1] : m ? m[1] : ""));
-    return '<span class="ichip" contenteditable="false" data-src="' + escapeAttr(source2) + '">' + escapeHtml(label) + "</span>";
+    const kind = m ? " " + m[1] : "";
+    return '<span class="ichip' + kind + '" contenteditable="false" data-src="' + escapeAttr(source2) + '">' + escapeHtml(label) + "</span>";
   }
   function escapeAttr(text) {
     return escapeHtml(text).replace(/"/g, "&quot;");
@@ -758,6 +759,70 @@
       this.actKey = 0;
       this.sceneKey = 0;
       root.addEventListener("keydown", (e) => this.onKey(e));
+      root.addEventListener("click", (e) => {
+        const chip = e.target.closest(".ichip");
+        if (!chip || this.readOnly || !(chip.dataset.src ?? "").startsWith("#footnote(")) return;
+        e.preventDefault();
+        this.editFootnote(chip);
+      });
+    }
+    /** F7.7 (issue #4): a small box with the footnote's text, bold and italic
+     * included. Enter or a click outside saves it as one undo step; Esc
+     * cancels. An emptied box changes nothing (Delete removes a footnote). */
+    editFootnote(chip) {
+      document.querySelector(".footnote-edit")?.remove();
+      const host = chip.closest("[contenteditable=true]");
+      if (!host) return;
+      const before = footnoteText(chip.dataset.src ?? "");
+      const pop = el("div", "footnote-edit", { role: "dialog" });
+      const label = el("div", "footnote-edit-label");
+      label.textContent = t("editor.footnoteLabel");
+      const box = el("div", "rich footnote-text", { contenteditable: "true", role: "textbox" });
+      box.setAttribute("aria-label", t("editor.footnoteLabel"));
+      box.innerHTML = inlineToHtml(before);
+      pop.append(label, box);
+      document.body.append(pop);
+      const r = chip.getBoundingClientRect();
+      pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + "px";
+      pop.style.top = (r.bottom + 6 + pop.offsetHeight > innerHeight ? Math.max(8, r.top - pop.offsetHeight - 6) : r.bottom + 6) + "px";
+      let done = false;
+      const close = (save2) => {
+        if (done) return;
+        done = true;
+        document.removeEventListener("pointerdown", outside, true);
+        pop.remove();
+        const markup = htmlToInline(box).replace(/\s*\n+\s*/g, " ").trim();
+        if (!save2 || !markup || markup === before || !chip.isConnected) return;
+        const holder = document.createElement("span");
+        holder.innerHTML = chipHtml(`#footnote(text: ${JSON.stringify(markup)})`);
+        chip.replaceWith(holder.firstChild);
+        host.dispatchEvent(new Event("input", { bubbles: true }));
+        this.hooks.onCommit(this.doc);
+      };
+      const outside = (e) => {
+        if (!pop.contains(e.target)) close(true);
+      };
+      box.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          close(true);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          close(false);
+        }
+        e.stopPropagation();
+      });
+      box.addEventListener("paste", (e) => {
+        e.preventDefault();
+        document.execCommand("insertText", false, (e.clipboardData?.getData("text/plain") ?? "").replace(/\s+/g, " "));
+      });
+      setTimeout(() => document.addEventListener("pointerdown", outside, true), 0);
+      box.focus();
+      const range = document.createRange();
+      range.selectNodeContents(box);
+      range.collapse(false);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
     }
     setDefinitions(defs2) {
       this.defs = new Map(defs2.map((d) => [d.id, d]));
@@ -892,7 +957,7 @@
       if (chain.length === 0) kinds.push("heading");
       const owner = chain[chain.length - 1];
       if (!owner || owner.type === "element" && owner.kind === "scene") kinds.push(...SUB_HEADINGS);
-      kinds.push("table", "image");
+      kinds.push("list", "table", "image");
       for (const def of this.defs.values()) {
         if (def.id === "scene" && chain.length > 0) continue;
         if (def.onlyInside && def.onlyInside.length) continue;
@@ -906,7 +971,7 @@
       return owner ? this.defs.get(owner.kind)?.allow ?? null : null;
     }
     renderBlock(block, place, allow) {
-      const wrap = el("section", "blk blk-" + block.type);
+      const wrap = el("section", "blk blk-" + (block.type === "list" ? "listing" : block.type));
       if (block.line) wrap.dataset.line = String(block.line);
       if (place.chain.length === 0) {
         let key = "";
@@ -977,6 +1042,8 @@
         note.textContent = t("editor.locked");
         pre.tabIndex = 0;
         wrap.append(note, pre);
+      } else if (block.type === "list") {
+        wrap.append(this.renderListBlock(block, place));
       } else if (block.type === "table") {
         wrap.append(this.renderTable(block, place));
       } else if (block.type === "image") {
@@ -1528,6 +1595,120 @@
       return path;
     }
     // --- tables (F4.5) and images (F4.6) ---------------------------------------
+    /** F4 (0.7.0 step 3, issue #5): a bulleted or numbered list, one line to
+     * type in per item. Enter adds an item after the cursor's; Enter on an
+     * empty item ends the list with a paragraph after it; Tab and Shift+Tab
+     * change an item's level (never more than one deeper than the item above,
+     * at most three levels); Backspace at the start of an empty item removes it. */
+    renderListBlock(block, place) {
+      const box = el("div", "list-edit " + (block.ordered ? "ordered" : "bulleted"), { role: "list" });
+      const items = block.items ?? (block.items = [{ level: 0, text: "" }]);
+      const counters = [0, 0, 0];
+      items.forEach((item, i) => {
+        const level = Math.max(0, Math.min(2, item.level));
+        counters[level] += 1;
+        for (let deeper = level + 1; deeper < 3; deeper++) counters[deeper] = 0;
+        const row2 = el("div", "list-item level-" + level, { role: "listitem" });
+        const mark = el("span", "list-mark");
+        mark.textContent = block.ordered ? counters[level] + "." : ["\u2022", "\u2013", "\u25E6"][level];
+        mark.setAttribute("aria-hidden", "true");
+        const line = el("div", "rich list-text", { contenteditable: this.readOnly ? "false" : "true", role: "textbox" });
+        line.setAttribute("aria-label", t("editor.listItem"));
+        line.dataset.item = String(i);
+        line.innerHTML = inlineToHtml(item.text);
+        line.addEventListener("input", () => {
+          item.text = htmlToInline(line).replace(/\n+/g, " ");
+          this.changed(block, place.chain);
+        });
+        line.addEventListener("paste", (e) => {
+          e.preventDefault();
+          const text = (e.clipboardData?.getData("text/plain") ?? "").replace(/\r\n?/g, "\n").replace(/\n+/g, " ");
+          document.execCommand("insertText", false, text);
+        });
+        line.addEventListener("keydown", (e) => this.listKey(e, block, place, i, line));
+        row2.append(mark, line);
+        box.append(row2);
+      });
+      return box;
+    }
+    listKey(e, block, place, i, line) {
+      if (this.readOnly || e.altKey || e.ctrlKey || e.metaKey) return;
+      const items = block.items;
+      const item = items[i];
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (!htmlToInline(line).trim()) {
+          items.splice(i, 1);
+          const paragraph = { type: "paragraph", text: "" };
+          const after = items.slice(i);
+          const at = place.list.blocks.indexOf(block);
+          if (items.length === 0) place.list.blocks.splice(at, 1, paragraph);
+          else if (after.length) {
+            items.splice(i);
+            const rest = { type: "list", ordered: block.ordered, items: after };
+            place.list.blocks.splice(at + 1, 0, paragraph, rest);
+          } else place.list.blocks.splice(at + 1, 0, paragraph);
+          delete block.raw;
+          this.commit(place.chain);
+          this.focusBlock(paragraph);
+          return;
+        }
+        const sel = getSelection();
+        let tail = "";
+        if (sel && sel.rangeCount && line.contains(sel.anchorNode)) {
+          const range = sel.getRangeAt(0).cloneRange();
+          range.selectNodeContents(line);
+          range.setStart(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
+          const holder = document.createElement("div");
+          holder.append(range.extractContents());
+          tail = htmlToInline(holder);
+          item.text = htmlToInline(line);
+        }
+        items.splice(i + 1, 0, { level: item.level, text: tail });
+        delete block.raw;
+        this.commit(place.chain);
+        this.focusListItem(block, i + 1, false);
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        const above = i > 0 ? items[i - 1].level : -1;
+        const level = e.shiftKey ? Math.max(0, item.level - 1) : Math.min(2, above + 1, item.level + 1);
+        if (level === item.level) return;
+        const delta = level - item.level;
+        let end = i + 1;
+        while (end < items.length && items[end].level > item.level) end++;
+        for (let k = i; k < end; k++) items[k].level = Math.max(0, Math.min(2, items[k].level + delta));
+        delete block.raw;
+        this.commit(place.chain);
+        this.focusListItem(block, i, true);
+      } else if (e.key === "Backspace" && !htmlToInline(line).trim() && items.length > 1) {
+        e.preventDefault();
+        items.splice(i, 1);
+        delete block.raw;
+        this.commit(place.chain);
+        this.focusListItem(block, Math.max(0, i - 1), true);
+      }
+    }
+    /** Put the cursor in an item of a list, at its start or its end. */
+    focusListItem(block, index, atEnd) {
+      const wrapper = this.blockSections()[this.order().indexOf(block)];
+      const line = wrapper?.querySelector(`.list-text[data-item="${index}"]`);
+      if (!line) return;
+      line.focus();
+      const range = document.createRange();
+      range.selectNodeContents(line);
+      range.collapse(!atEnd);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
+    }
+    /** F4 (issue #5): switch a list between bulleted and numbered; one undo step. */
+    setListKind(place, ordered) {
+      const block = place.list.blocks[place.index];
+      if (!block || block.type !== "list" || !!block.ordered === ordered) return;
+      block.ordered = ordered;
+      delete block.raw;
+      this.commit(place.chain);
+      this.focusListItem(block, 0, true);
+    }
     renderTable(block, place) {
       const box = el("div", "tbl-edit");
       const table2 = el("table", "tbl");
@@ -1681,6 +1862,7 @@
       if (kind === "heading") return { type: "heading", level: 1, text: "" };
       if (SUB_HEADINGS.includes(kind)) return { type: "heading", level: Number(kind.slice(-1)), text: "" };
       if (kind === "table") return { type: "table", columns: 2, header: ["", ""], rows: [["", ""]] };
+      if (kind === "list") return { type: "list", ordered: false, items: [{ level: 0, text: "" }] };
       const def = this.defs.get(kind);
       const block = { type: "element", kind, fields: {}, variant: def.defaultVariant, new_page: null };
       for (const f of def.fields) {
@@ -2125,11 +2307,11 @@
     /** The kinds this block can be converted to where it stands. */
     convertKinds(place) {
       const block = place.list.blocks[place.index];
-      if (!block || block.type === "locked" || block.type === "table" || block.type === "image") return [];
+      if (!block || block.type === "locked" || block.type === "table" || block.type === "image" || block.type === "list") return [];
       const current2 = kindOf(block);
       const kinds = this.kindsFor(place.list, place.chain, this.allowOf(place.chain));
       if (this.splitsScene(place) && !kinds.includes("scene")) kinds.splice(kinds.indexOf("heading") + 1 || 1, 0, "scene");
-      return kinds.filter((k) => k !== current2 && k !== "table" && k !== "image" && this.defs.get(k)?.category !== "layout");
+      return kinds.filter((k) => k !== current2 && k !== "table" && k !== "image" && k !== "list" && this.defs.get(k)?.category !== "layout");
     }
     /** A block directly inside a top-level scene can become a new scene that
      * starts after it (pasted text: "Scene 2: …" inside scene 1). */
@@ -2151,10 +2333,22 @@
         return;
       }
       const block = place.list.blocks[place.index];
-      const text = textOf(block, this.defs.get(block.kind ?? ""));
+      let text = textOf(block, this.defs.get(block.kind ?? ""));
       const children = isDoc(block.body) ? block.body.blocks : [];
       const target = this.newBlock(kind);
       target.sep = block.sep;
+      const pasted = target.type === "element" ? this.takeLabels(text, kind) : null;
+      if (pasted) {
+        text = pasted.text;
+        if (pasted.variant) target.variant = pasted.variant;
+        if (pasted.field) this.fillPastedField(target, pasted.field[0], pasted.field[1]);
+        while (place.list.blocks[place.index + 1]?.type === "paragraph") {
+          const next = place.list.blocks[place.index + 1];
+          const line = this.takeLabels(next.text ?? "", kind);
+          if (!line?.field || line.field[0] === this.titleField(kind) || !this.fillPastedField(target, line.field[0], line.field[1])) break;
+          place.list.blocks.splice(place.index + 1, 1);
+        }
+      }
       const singleLine = !text.includes("\n") && inlineToPlain(text).length <= 80;
       const release = [];
       if (target.type === "paragraph") {
@@ -2208,6 +2402,99 @@
       place.list.blocks.splice(place.index, 1, target, ...release);
       this.commit(place.chain);
       this.focusBlock(target);
+    }
+    /** F4 (issue #2): the words a label may use for this element, its
+     * variants and its fields: the element's own paste labels (English and
+     * Swedish) plus the names the interface shows. */
+    labelWords(kind) {
+      const def = this.defs.get(kind);
+      const own = def.pasteLabels ?? {};
+      const names = [def.name, ...own.names ?? []];
+      const variants = def.variants.map((v) => [v.id, [v.label, ...own.variants?.[v.id] ?? []]]);
+      const fields = def.fields.filter((f) => !f.hidden && !f.legacy && ["text", "rich", "codex", "codex-list"].includes(f.kind)).map((f) => [f.name, [f.label, ...own.fields?.[f.name] ?? []]]);
+      return { names, variants, fields };
+    }
+    titleField(kind) {
+      return this.defs.get(kind)?.fields.find((f) => f.required && f.kind === "text")?.name;
+    }
+    /** The label at the start of one line of markup, if any: removed with a
+     * leading list marker. A name of the element or a variant goes; a field
+     * label gives its field the rest of the line. A label only counts at the
+     * start, followed by a colon (or in brackets), so "Note: …" in the middle
+     * of a sentence stays. */
+    takeLabels(markup, kind) {
+      const words = this.labelWords(kind);
+      const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[- ]/g, "[- ]");
+      const marker = /^\s*(?:\\?[-*+\u2022]|\d+\\?[.)])\s+/;
+      let rest = markup.replace(marker, "");
+      const changedByMarker = rest !== markup;
+      const tryLabel = (list) => {
+        const alt = list.filter(Boolean).map(esc).join("|");
+        if (!alt) return null;
+        const re = new RegExp("^\\s*(?:\\\\?\\[\\s*(?:" + alt + ")\\s*\\\\?\\]\\s*:?|(?:" + alt + ")(?:\\s+\\d+)?(?:\\s*\\([^)]*\\))?\\s*:)\\s*", "i");
+        const m = re.exec(rest);
+        return m ? rest.slice(m[0].length) : null;
+      };
+      let variant;
+      let field;
+      let found = false;
+      for (let round = 0; round < 2; round++) {
+        const named = tryLabel(words.names);
+        if (named !== null) {
+          rest = named;
+          found = true;
+          continue;
+        }
+        const v = words.variants.find(([, list]) => tryLabel(list) !== null);
+        if (v && !variant) {
+          rest = tryLabel(v[1]);
+          variant = v[0];
+          found = true;
+          continue;
+        }
+        break;
+      }
+      if (!variant && !found) {
+        const f = words.fields.find(([, list]) => tryLabel(list) !== null);
+        if (f) {
+          const value = tryLabel(f[1]).trim();
+          if (f[0] === this.titleField(kind)) {
+            rest = value;
+            found = true;
+          } else {
+            field = [f[0], value];
+            rest = "";
+            found = true;
+          }
+        }
+      }
+      if (!found && !changedByMarker) return null;
+      return { text: rest.trim(), variant, field };
+    }
+    /** Put a pasted value into a field (issue #2). A codex field links the
+     * entries of those names when every name is in the codex; otherwise the
+     * text goes into its older text field of the same name (Location, People
+     * present, Linked to), which the codex upgrade offers to link later. */
+    fillPastedField(target, name, value) {
+      const def = this.defs.get(target.kind);
+      const field = def.fields.find((f) => f.name === name);
+      if (!field || !value) return false;
+      target.fields = target.fields ?? {};
+      if (field.kind === "text") target.fields[name] = inlineToPlain(value);
+      else if (field.kind === "rich") target.fields[name] = value;
+      else {
+        const names = inlineToPlain(value).split(/\s*(?:,|;|\band\b|\boch\b)\s*/i).map((n) => n.trim()).filter(Boolean);
+        const entries = this.hooks.codexEntries().filter((e) => !field.types || field.types.includes(e.type));
+        const ids = names.map((n) => entries.find((e) => e.title.toLowerCase() === n.toLowerCase())?.id);
+        if (names.length && ids.every(Boolean)) {
+          target.fields[name] = field.kind === "codex" ? ids[0] : ids;
+        } else {
+          const legacy = def.fields.find((f) => f.legacy && f.kind === "text" && f.label === field.label);
+          if (!legacy) return false;
+          target.fields[legacy.name] = inlineToPlain(value);
+        }
+      }
+      return true;
     }
     // --- keyboard and focus ---------------------------------------------------------
     onKey(e) {
@@ -2271,6 +2558,15 @@
   };
   function escapeCell(text) {
     return escapeInline(text);
+  }
+  function footnoteText(source2) {
+    const m = /text:\s*"((?:[^"\\]|\\.)*)"/.exec(source2);
+    if (!m) return "";
+    try {
+      return JSON.parse('"' + m[1] + '"');
+    } catch {
+      return m[1];
+    }
   }
   function textOf(block, def) {
     if (block.type === "paragraph" || block.type === "heading") return block.text ?? "";
@@ -33807,10 +34103,11 @@
     const ro = api2.readOnly();
     body.append(h3("div", "entry-type", type?.name ?? info2.type));
     const form = h3("div", "entry-form");
+    const firstLink = (type?.fields ?? []).find((f) => f.kind === "link")?.name;
     for (const field of type?.fields ?? []) {
       const row2 = h3("label", "field entry-field field-" + field.name);
       row2.append(h3("span", "field-label", field.label + (field.required ? " *" : "")));
-      row2.append(entryControl(id2, field, info2.fields[field.name], ro));
+      row2.append(entryControl(id2, field, info2.fields[field.name], ro, field.name === firstLink ? info2.linkedFrom ?? [] : []));
       form.append(row2);
     }
     const folder = h3("label", "field entry-field");
@@ -33882,7 +34179,7 @@
     renderCodexPanel();
     if (keepScroll) $5("worldview-body").scrollTop = scroll;
   }
-  function entryControl(id2, field, value, ro) {
+  function entryControl(id2, field, value, ro, linkedFrom = []) {
     const set2 = (v) => queueEntry(id2, { fields: { [field.name]: v } });
     switch (field.kind) {
       case "rich": {
@@ -33929,11 +34226,28 @@
           }));
           row2.append(chip);
         }
+        for (const other of linkedFrom) {
+          const chip = h3("span", "codex-chip linked-from");
+          const name = button(other.title, "codex-chip-name", () => openEntry(other.id));
+          chip.title = t("codex.linkFromOther", { name: other.title });
+          chip.append(name, h3("span", "linked-from-mark", t("codex.fromOther")));
+          if (!ro) chip.append(button("\xD7", "icon-btn", async () => {
+            await flushEntry();
+            const info2 = await call("entry", other.id);
+            if (!info2?.ok) return;
+            const stored = info2.fields?.[other.field];
+            const list = Array.isArray(stored) ? stored : stored ? [stored] : [];
+            queueEntry(other.id, { fields: { [other.field]: list.filter((x2) => x2 !== id2) } });
+            await flushEntry();
+            await openEntry(id2, true);
+          }));
+          row2.append(chip);
+        }
         if (!ro) {
           const select2 = h3("select", "field-input field-codex");
           select2.append(h3("option", "", t("editor.addEntry")));
           select2.firstChild.value = "";
-          for (const e of codex.entries.filter((e2) => e2.id !== id2 && !ids.includes(e2.id))) {
+          for (const e of codex.entries.filter((e2) => e2.id !== id2 && !ids.includes(e2.id) && !linkedFrom.some((o) => o.id === e2.id))) {
             const opt = h3("option", "", `${e.title} (${typeOf(e.type)?.name ?? e.type})`);
             opt.value = e.id;
             select2.append(opt);
@@ -35201,6 +35515,9 @@
       { key: "menu.format", items: [
         { label: t("toolbar.bold"), action: () => document.execCommand("bold"), shortcut: "Ctrl+B", disabled: !has || ro },
         { label: t("toolbar.italic"), action: () => document.execCommand("italic"), shortcut: "Ctrl+I", disabled: !has || ro },
+        // F4 (issue #5): the list at the cursor, bulleted or numbered.
+        { label: t("editor.toBulleted"), action: () => listKind(false), disabled: !has || ro || focusedList()?.ordered !== true },
+        { label: t("editor.toNumbered"), action: () => listKind(true), disabled: !has || ro || focusedList()?.ordered !== false },
         { label: t("menu.style"), disabled: !has || ro, children: styleKinds().map((kind) => ({ label: kindLabel(kind), action: () => setStyle2(kind) })) }
       ] },
       { key: "menu.help", items: [
@@ -35220,6 +35537,15 @@
       ] }
     ];
   }
+  function focusedList() {
+    const place = visual.focused();
+    const block = place ? place.list.blocks[place.index] : null;
+    return block && block.type === "list" ? block : null;
+  }
+  function listKind(ordered) {
+    const place = visual.focused();
+    if (place) visual.setListKind(place, ordered);
+  }
   function kindLabel(kind) {
     if (kind === "paragraph") return t("editor.paragraph");
     if (kind === "heading") return t("editor.actHeading");
@@ -35228,12 +35554,13 @@
     if (kind === "heading-4") return t("editor.subHeading2");
     if (kind === "heading-5") return t("editor.subHeading3");
     if (kind === "table") return t("editor.table");
+    if (kind === "list") return t("editor.list");
     if (kind === "image") return t("editor.image");
     return state.defs.find((d) => d.id === kind)?.name ?? kind;
   }
   function insertItems(kinds, onPick) {
     const pick = onPick ?? ((kind) => insert(kind));
-    const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside && d.offered !== false).map((d) => d.id), "table", "image"];
+    const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside && d.offered !== false).map((d) => d.id), "list", "table", "image"];
     const items = [];
     for (const kind of ["paragraph", "heading", ...SUB_HEADINGS, "scene-end"]) {
       if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
@@ -35249,7 +35576,7 @@
       items.push({ label: def.name, action: () => pick(def.id), shortcut });
       if (def.id === "information" && pickerType("clue")) items.push({ label: t("menu.insertClue"), action: () => pick("clue") });
     }
-    for (const kind of ["table", "image"]) {
+    for (const kind of ["list", "table", "image"]) {
       if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
     }
     const layout4 = state.defs.filter((d) => isLayout(d) && allowed.includes(d.id));
@@ -35264,7 +35591,7 @@
     const used = /* @__PURE__ */ new Set();
     const columns = [];
     const text = [];
-    for (const kind of ["paragraph", "table", "image", "footnote"]) {
+    for (const kind of ["paragraph", "list", "table", "image", "footnote"]) {
       if (!kinds.includes(kind)) continue;
       used.add(kind);
       const def = state.defs.find((d) => d.id === kind);
@@ -35719,7 +36046,7 @@
         getSelection()?.removeAllRanges();
         getSelection()?.addRange(range);
       }
-      if (!visual.insertInline(`#footnote(text: ${JSON.stringify(answer.text.trim())})`)) flashStatus(t("codex.placeCursor"));
+      if (!visual.insertInline(`#footnote(text: ${JSON.stringify(escapeInline(answer.text.trim()))})`)) flashStatus(t("codex.placeCursor"));
       return;
     }
     if (def?.inlineForm === "call" && place === void 0) {
@@ -35795,6 +36122,9 @@
       const block = place.list.blocks[place.index];
       if (block?.type === "element" && block.kind !== "card" && state.defs.some((d) => d.id === "card") && codex.types.some((x2) => x2.card === block.kind)) {
         items.push({ label: t("codex.toEntry"), action: () => convertToCodex(place) });
+      }
+      if (block?.type === "list") {
+        items.push(block.ordered ? { label: t("editor.toBulleted"), action: () => visual.setListKind(place, false) } : { label: t("editor.toNumbered"), action: () => visual.setListKind(place, true) });
       }
       if (isSubHeading(block)) {
         if (visual.canRaise(place)) items.push({ label: t("editor.raise"), action: () => visual.changeLevel(place, -1), shortcut: "Shift+Tab" });
@@ -37084,7 +37414,7 @@
     });
     setChipLabeler((kind, args) => {
       if (kind === "footnote") {
-        const text = /text:\s*"((?:[^"\\]|\\.)*)"/.exec(args)?.[1] ?? "";
+        const text = inlineToPlain(footnoteText("#footnote(" + args + ")"));
         return "\u2020 " + (text.length > 28 ? text.slice(0, 28) + "\u2026" : text);
       }
       if (kind !== "mention" && kind !== "see") return null;
@@ -37288,6 +37618,7 @@
       words: state.chapter?.words ?? 0,
       info: state.info,
       tabs: state.tabs,
+      doc: visual.current(),
       status: ["st-line", "st-page", "st-words", "st-problems", "st-export"].map((id2) => $6(id2).textContent)
     }),
     flush,
@@ -37347,6 +37678,11 @@
     switchTab,
     closeTab,
     kindOf,
+    focusedKind: () => {
+      const p2 = visual.focused();
+      const b = p2 ? p2.list.blocks[p2.index] : null;
+      return b ? kindOf(b) + (b.type === "list" ? b.ordered ? ":ordered" : ":bulleted" : "") : null;
+    },
     isDoc,
     dropImage: async (name, base64) => {
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));

@@ -22,7 +22,7 @@ Installers are on the [releases page](https://github.com/lyzio/Scriptorum/releas
 |---|---|---|
 | Linux | `Scriptorum-<version>-linux-x86_64.AppImage` | Runs on mainstream distributions (glibc 2.35 or newer) without installing |
 | macOS 12 or newer | `Scriptorum-<version>-macos-arm64.dmg` (Apple Silicon), `…-macos-x86_64.dmg` (Intel) | Unsigned: the first start asks for confirmation, see the install notes |
-| Windows 10 or 11, 64-bit | `Scriptorum-<version>-windows-x64-setup.exe` | **Not yet tested.** Please report anything that does not work as an [issue](https://github.com/lyzio/Scriptorum/issues) |
+| Windows 10 or 11, 64-bit | `Scriptorum-<version>-windows-x64-setup.exe` | Tested with 0.6.9 and works; 0.7 not yet tried on Windows. Please report anything that does not work as an [issue](https://github.com/lyzio/Scriptorum/issues) |
 
 Each download holds everything Scriptorum needs and works without an internet connection. The installers are not signed with paid Apple or Microsoft certificates; the install notes beside each download explain the first-start warning.
 

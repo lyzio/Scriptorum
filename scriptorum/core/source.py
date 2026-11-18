@@ -21,6 +21,7 @@ Block shapes (JSON, shared with the interface):
                           "new_page": None, "body": None | "<inline>" | {"blocks": [...], "trail": ""}}
     {"type": "table",     "columns": 2, "header": ["<inline>", ...], "rows": [["<inline>", ...], ...]}
     {"type": "image",     "path": "/assets/images/<name>"}
+    {"type": "list",      "ordered": False, "items": [{"level": 0, "text": "<inline>"}, ...]}
     {"type": "locked"}
 
 plus ``sep``, ``raw``, ``line`` (1-based) and, for elements, ``head_raw``
@@ -552,7 +553,59 @@ def _parse_block(text: str, j: int, kinds: Dict[str, dict], base_line: int, allo
     raw = text[j:end]
     if inline_ok(raw, inline):
         return end, {"type": "paragraph", "text": raw}
+    listed = parse_list(raw, inline)
+    if listed is not None:
+        return end, listed
     return end, {"type": "locked"}
+
+
+LIST_LINE = re.compile(r"([ \t]*)([-+])(?:[ \t]+(.*))?$")
+LIST_LEVELS = 3
+
+
+def parse_list(raw: str, inline: frozenset = frozenset()) -> Optional[dict]:
+    """F4 (0.7.0 step 3, issue #5): a bulleted (``- item``) or numbered
+    (``+ item``) list of up to three levels, one item per line, each item
+    inline markup the editor can show. Anything else (a table or a second
+    line inside an item, both markers at once, ``1.`` numbering) is None and
+    stays a locked block."""
+    items, widths, marker = [], [], None
+    for line in raw.split("\n"):
+        m = LIST_LINE.match(line.rstrip(" \t"))
+        if not m:
+            return None
+        if marker is None:
+            marker = m.group(2)
+        elif m.group(2) != marker:
+            return None
+        text = (m.group(3) or "").strip()
+        if not inline_ok(text, inline):
+            return None
+        width = len(m.group(1).expandtabs(2))
+        items.append((width, text))
+        if width not in widths:
+            widths.append(width)
+    widths.sort()
+    if not items or len(widths) > LIST_LEVELS:
+        return None
+    out, previous = [], -1
+    for width, text in items:
+        level = widths.index(width)
+        if level > previous + 1:
+            return None
+        out.append({"level": level, "text": text})
+        previous = level
+    return {"type": "list", "ordered": marker == "+", "items": out}
+
+
+def list_text(block: dict) -> str:
+    """F4 (issue #5): the canonical list form, two spaces per level."""
+    mark = "+ " if block.get("ordered") else "- "
+    lines = []
+    for item in block.get("items", []):
+        level = max(0, min(LIST_LEVELS - 1, int(item.get("level", 0))))
+        lines.append("  " * level + mark + item.get("text", ""))
+    return "\n".join(lines)
 
 
 def _rest_of_line_empty(text: str, k: int) -> bool:
@@ -768,6 +821,8 @@ def block_text(block: dict, kinds: Dict[str, dict]) -> str:
         return block.get("raw", "")
     if btype == "table":
         return _table_text(block)
+    if btype == "list":
+        return list_text(block)
     if btype == "image":
         if block.get("alt"):
             return f"#image({quote_string(block['path'])}, alt: {quote_string(block['alt'])})"
@@ -1058,6 +1113,8 @@ def word_count(doc: dict) -> int:
         texts = []
         if block["type"] in ("heading", "paragraph"):
             texts.append(inline_to_plain(block.get("text", "")))
+        elif block["type"] == "list":
+            texts.extend(inline_to_plain(i.get("text", "")) for i in block.get("items", []))
         elif block["type"] == "table":
             for row in [block.get("header", []), *block.get("rows", [])]:
                 texts.extend(inline_to_plain(c) for c in row)
