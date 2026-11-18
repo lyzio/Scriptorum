@@ -2,6 +2,7 @@
   "at": "Line {line}: {message}",
   "scav.notAdventure": "“{path}” is not a Scriptorum adventure.",
   "scav.damaged": "“{path}” is damaged and cannot be opened.",
+  "scav.cannotRead": "“{path}” could not be read: {message}",
   "scav.newerFormat": "“{path}” was saved by a newer version of Scriptorum (file format {found}). This version reads format {supported}. The file has not been changed.",
   "scav.cannotMigrate": "“{path}” uses file format {found}, which this version cannot convert.",
   "scav.missingChapter": "“{path}” is missing its chapter {chapter}.",

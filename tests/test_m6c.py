@@ -472,7 +472,8 @@ def test_T_UI_32_no_other_network_code():
         text = file.read_text("utf-8")
         if re.search(r"\b(urllib\.request|urlopen|http\.client|socket\.create_connection|QNetworkAccessManager|requests\.)", text):
             users.append(file.relative_to(root).as_posix())
-    assert users == ["core/updates.py"]
+    # Corrected for 0.7.0 (F23.6): the requests moved into the API's network gate.
+    assert users == ["api/net.py"]
 
 
 # --- T-UI-32 and T-SRC-18 in the window ------------------------------------------------------

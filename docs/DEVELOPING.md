@@ -106,7 +106,8 @@ npm run build:test
 | `scriptorum/core/palettes.py`, `appsettings.py` | App palettes and their contrast check (F16); app settings (F18) |
 | `scriptorum/core/spelling.py` | Spell check (F4.8) |
 | `scriptorum/core/crashlog.py` | Local crash logs (F2.11) |
-| `scriptorum/app/` | PySide6 window, tabs and the WebChannel bridge (D4) |
+| `scriptorum/api/` | The internal API (F23, from 0.7.0): every operation the interface and, later, extensions use, by area (app, adventure, codex, build, modules), its events, errors and the one network gate (`net.py`). Described in [API.md](API.md); `surface.json` is the stored surface of its version |
+| `scriptorum/app/` | PySide6 window and the WebChannel bridge (D4); from 0.7.0 the bridge keeps only what needs Qt and passes everything else to the API |
 | `scriptorum/ui/` | Interface page, styles and the bundled script |
 | `scriptorum/bundled/` | The modules that ship with the app (9.8) |
 | `scriptorum/dictionaries/` | Swedish and English spell-check dictionaries, with their licences |

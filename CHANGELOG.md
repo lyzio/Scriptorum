@@ -2,6 +2,17 @@
 
 What each version of Scriptorum brings, newest first. The section of a version is also the description of its [GitHub release](https://github.com/lyzio/Scriptorum/releases).
 
+## 0.7.0 — in progress (built in five steps on build/0.7.0, released once)
+
+### Step 1: the internal API (issue #29)
+
+- **Nothing changes for you.** Scriptorum looks and works exactly as before; this step reorganises how the interface talks to the core.
+- **One layer between the core and everything that uses it** (design document F23): `scriptorum/api/`, with its operations grouped by area (app, adventure, codex, build, modules). Every operation takes and returns plain data, and a refusal comes back as a plain message, never a raw error. The window's bridge now keeps only what needs Qt (dialogs, windows, timers) and passes everything else to the API. Extension modules (issue #27) will use the same API later.
+- **The API has its own version, 1.0,** and is described in `docs/API.md`. A test fails if its operations change without a new version.
+- **One network gate.** The update check and the update download, still the only network requests Scriptorum makes and only when you ask, now go through one function; nothing else in the app can reach the network.
+- **Fixed on the way:** opening a file that does not exist (for example from Open recent after it was moved) now says so plainly instead of failing without a word.
+- **The Windows installer has not been tested yet.** If you try it, please report anything that does not work as an [issue](https://github.com/lyzio/Scriptorum/issues).
+
 ## 0.6.10 — 18 November 2026 (Milestone 6, fix build)
 
 - **The update check finds updates (issue #26).** It asked for `scriptorium-update.json`, a misspelling, while each release publishes `scriptorum-update.json`, so it never found anything. It now asks for the right name, and a test checks that the app and the release script agree.
