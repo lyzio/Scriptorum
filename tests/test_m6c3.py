@@ -370,7 +370,10 @@ def test_T_WORLD_27_key_beside_or_under(session, tmp_path):
         session.update_map({"id": made["id"], "layers": [{"name": "L", "show_in_handout": True, "items": [
             {"type": "pin", "x": 0.4, "y": 0.4, "text": f"Keyword{name}"}]}]})
         text = session.adventure.chapter_text(session.adventure.chapters[0])
-        session.set_chapter_text(0, f'#map(map: "{made["id"]}")\n\n' + text)
+        # Corrected for M6-0.6.10 (issue #22, T-WORLD-35): the key goes beside
+        # only where the space is at least 12 cm wide, so the map stands in a
+        # full-width section of the sample's two-column page.
+        session.set_chapter_text(0, f'#full-width[\n#map(map: "{made["id"]}")\n]\n\n' + text)
         result = session.build("pdf")
         assert result.ok, result.problems
         from tests.test_m6c2 import _lines

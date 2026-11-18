@@ -7,5 +7,7 @@
   "fitWidth": "Fit width",
   "wholePage": "Whole page",
   "spread": "Two pages",
-  "ownWindow": "Own window"
+  "ownWindow": "Own window",
+  "app": "Zoom {percent} %",
+  "appReset": "The size of the whole window. Click, or press Ctrl+0, to go back to 100 %."
 }

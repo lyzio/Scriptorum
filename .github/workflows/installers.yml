@@ -6,8 +6,9 @@
 #   Linux    AppImage        on Ubuntu 22.04 (so it also runs on older systems)
 #   macOS    .dmg            on macos-15 (Apple Silicon) and macos-15-intel (Intel)
 #   Windows  setup program   on Windows Server 2022
-# Each runs the kit's seven steps, smoke test included, and the results are
-# attached to the release v<version>, beside the signed update files (F22).
+# Each runs the kit's seven steps, smoke test included, and the installers are
+# attached to the release v<version> with one SHA256SUMS.txt for all of them,
+# beside the signed update files (F22; F10, M6-0.6.10).
 #
 # Actions > Installers > Run workflow builds test installers from any branch
 # or tag, as downloads of the run. Tick "attach" (with a tag) to add them to
@@ -46,20 +47,20 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: The packaging kit (this workflow's commit)
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           path: kit
           persist-credentials: false
 
       - name: The app to build
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           path: app
           ref: ${{ inputs.ref || github.ref }}
           persist-credentials: false
 
       - name: Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.13"
 
@@ -91,7 +92,7 @@ jobs:
           python kit/packaging/build.py app --out out $flags
 
       - name: Keep the results as downloads of this run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: Scriptorum-${{ matrix.name }}
           path: out/
@@ -108,7 +109,7 @@ jobs:
       contents: write
     steps:
       - name: The results of every build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           path: out
           merge-multiple: true
@@ -126,9 +127,19 @@ jobs:
             echo "No platform built an installer, so there is nothing to attach." >&2
             exit 1
           fi
-          echo "Attaching: $(ls out | tr '\n' ' ')"
           for attempt in $(seq 1 40); do
             if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+              # F10 (M6-0.6.10, issue #25): one SHA256SUMS.txt for every
+              # installer of the release. The lines of installers attached
+              # by an earlier run are kept; this run's replace their own.
+              mkdir -p sums
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS.txt --dir sums 2> /dev/null || true
+              touch sums/SHA256SUMS.txt
+              (cd out && sha256sum -- *) > sums/new.txt
+              awk 'NR==FNR { fresh[substr($0, index($0, "  ") + 2)] = 1; next }
+                   !(substr($0, index($0, "  ") + 2) in fresh)' sums/new.txt sums/SHA256SUMS.txt > sums/kept.txt
+              cat sums/kept.txt sums/new.txt | sort -k2 > out/SHA256SUMS.txt
+              echo "Attaching: $(ls out | tr '\n' ' ')"
               gh release upload "$TAG" out/* --clobber --repo "$GITHUB_REPOSITORY"
               exit 0
             fi

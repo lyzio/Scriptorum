@@ -655,7 +655,7 @@ def test_T_UI_44_update_address(ui):
     bridge = ui.window.bridge
     settings = bridge.session.app_settings
     settings.update({"update_address": ""})
-    assert updates.UPDATE_URL == "https://github.com/lyzio/Scriptorum/releases/latest/download/scriptorium-update.json"
+    assert updates.UPDATE_URL == "https://github.com/lyzio/Scriptorum/releases/latest/download/scriptorum-update.json"
     ui.run("window.__scriptorum.openSettingsWindow('application')")
     assert ui.js("document.getElementById('app-updateAddress').value") == ""
     for bad in ("http://example.org/u.json", "not an address", "ftp://example.org/u.json"):
@@ -664,7 +664,7 @@ def test_T_UI_44_update_address(ui):
         ui.wait_until(lambda: not ui.js("document.getElementById('app-updateAddressError').classList.contains('hidden')"), 5)
         assert ui.js("document.getElementById('app-updateAddressError').textContent").startswith("Only a secure https address")
         assert settings.get("update_address") == ""
-    entered = "https://mirror.example.org/scriptorium-update.json"
+    entered = "https://mirror.example.org/scriptorum-update.json"
     ui.js(f"(() => {{ const i = document.getElementById('app-updateAddress'); i.value = {json.dumps(entered)};"
           " i.dispatchEvent(new Event('change')); return true; })()")
     ui.wait_until(lambda: settings.get("update_address") == entered, 5)
@@ -704,7 +704,7 @@ def test_T_UI_45_address_moved(ui):
     settings = bridge.session.app_settings
     settings.update({"update_address": ""})
     url = updates.UPDATE_URL
-    moved = "https://updates.example.org/scriptorium-update.json"
+    moved = "https://updates.example.org/scriptorum-update.json"
 
     def check_and_answer(file_bytes, answer):
         done = ui.js("Number(document.body.dataset.movedDone || 0)")

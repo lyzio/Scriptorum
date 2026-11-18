@@ -36,7 +36,11 @@ DEFAULTS = {
     "update_asked": False,            # F21: the question at first start is asked once
     "update_last_check": 0,           # F21: when the weekly check last ran (seconds)
     "update_address": "",             # F22 (M6 part C5): empty means the built-in address
+    "app_zoom": 100,                  # F9 (M6-0.6.10, issue #16): the whole window's zoom, in %
 }
+
+# F9 (M6-0.6.10, issue #16): the steps of the window's zoom, in per cent.
+APP_ZOOM_STEPS = (50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200)
 
 CHOICES = {
     "mode": ("light", "dark", "system"),
@@ -45,6 +49,7 @@ CHOICES = {
     "full_screen": (True, False),
     "update_weekly": (True, False),
     "update_asked": (True, False),
+    "app_zoom": APP_ZOOM_STEPS,
 }
 RANGES = {"ui_size": (11, 18), "editor_size": (12, 24), "snapshot_minutes": (1, 120), "snapshot_keep": (1, 200),
           "update_last_check": (0, 2 ** 40)}

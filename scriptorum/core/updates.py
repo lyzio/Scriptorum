@@ -52,7 +52,7 @@ from scriptorum.core.modules import parse_version
 PLACEHOLDER = "Paste update url here"
 # From M6-0.6.7 (decided 13 November 2026): every released version is a
 # GitHub release of lyzio/Scriptorum; GitHub points "latest" at the newest.
-UPDATE_URL = "https://github.com/lyzio/Scriptorum/releases/latest/download/scriptorium-update.json"
+UPDATE_URL = "https://github.com/lyzio/Scriptorum/releases/latest/download/scriptorum-update.json"
 
 WEEK_SECONDS = 7 * 24 * 60 * 60
 TIMEOUT_SECONDS = 10

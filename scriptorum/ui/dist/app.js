@@ -52,6 +52,9 @@
     root.querySelectorAll("[data-i18n-aria]").forEach((el2) => {
       el2.setAttribute("aria-label", t(el2.dataset.i18nAria));
     });
+    root.querySelectorAll("[data-i18n-alt]").forEach((el2) => {
+      el2.alt = t(el2.dataset.i18nAlt);
+    });
     root.querySelectorAll("[data-i18n-placeholder]").forEach((el2) => {
       el2.placeholder = t(el2.dataset.i18nPlaceholder);
     });
@@ -35254,6 +35257,54 @@
     }
     return items;
   }
+  var LAYOUT_KINDS = ["full-width", "keep-together", "contents"];
+  function groupedInsertItems(kinds, pick) {
+    const used = /* @__PURE__ */ new Set();
+    const columns = [];
+    const text = [];
+    for (const kind of ["paragraph", "table", "image", "footnote"]) {
+      if (!kinds.includes(kind)) continue;
+      used.add(kind);
+      const def = state.defs.find((d) => d.id === kind);
+      text.push({ label: def ? def.name : kindLabel(kind), action: () => pick(kind), shortcut: def?.shortcut ?? void 0 });
+    }
+    columns.push({ label: t("menu.groupText"), items: text });
+    for (const group2 of GROUPS) {
+      const items2 = [];
+      for (const entry of GROUP_ORDER[group2.id] ?? []) {
+        const [kind, variant] = entry.split(":");
+        if (!kinds.includes(kind)) continue;
+        used.add(kind);
+        if (kind === "heading" || kind.startsWith("heading-") || kind === "scene-end") {
+          items2.push({ label: kindLabel(kind), action: () => pick(kind) });
+          continue;
+        }
+        const def = state.defs.find((d) => d.id === kind);
+        if (!def) continue;
+        const label = variant ? t(`toolbar.item.information.${variant}`) : def.name;
+        items2.push({ label, action: () => pick(kind, variant), shortcut: variant && variant !== "secret" ? void 0 : def.shortcut ?? void 0 });
+        if (entry === "information:hint" && pickerType("clue")) items2.push({ label: t("menu.insertClue"), action: () => pick("clue") });
+      }
+      columns.push({ label: t(`toolbar.group.${group2.id}`), items: items2 });
+    }
+    const layout4 = state.defs.filter((d) => (d.category === "layout" || LAYOUT_KINDS.includes(d.id)) && kinds.includes(d.id) && !used.has(d.id));
+    layout4.forEach((d) => used.add(d.id));
+    columns.push({ label: t("menu.layout"), items: layout4.map((d) => ({ label: d.name, action: () => pick(d.id), shortcut: d.shortcut ?? void 0 })) });
+    const other = [];
+    for (const kind of kinds) {
+      if (used.has(kind)) continue;
+      const def = state.defs.find((d) => d.id === kind);
+      other.push({ label: def ? def.name : kindLabel(kind), action: () => pick(kind) });
+      if (kind === "information" && pickerType("clue")) other.push({ label: t("menu.insertClue"), action: () => pick("clue") });
+    }
+    columns.push({ label: t("menu.groupOther"), items: other });
+    const items = [];
+    for (const column of columns) {
+      if (!column.items.length) continue;
+      items.push({ label: column.label, heading: true, column: true }, ...column.items);
+    }
+    return items;
+  }
   var previewShown = true;
   function setPreview(show2) {
     previewShown = show2;
@@ -35297,12 +35348,19 @@
   function showPopup(anchor, items) {
     const popup = $6("menu-popup");
     popup.textContent = "";
+    popup.classList.toggle("popup-columns", items.some((i) => i.column));
+    let into = popup;
     for (const item of items) {
       if (item.heading) {
         const h4 = document.createElement("div");
         h4.className = "menu-heading";
         h4.textContent = item.label;
-        popup.append(h4);
+        if (item.column) {
+          into = document.createElement("div");
+          into.className = "menu-column";
+          popup.append(into);
+        }
+        into.append(h4);
         continue;
       }
       const row2 = document.createElement("button");
@@ -35331,7 +35389,7 @@
           item.action();
         });
       }
-      popup.append(row2);
+      into.append(row2);
     }
     let left;
     let top;
@@ -36743,6 +36801,41 @@
     renderFullScreen();
     buildMenus();
   }
+  var APP_ZOOM_STEPS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200];
+  var appZoom = 100;
+  function renderAppZoom() {
+    const button2 = $6("st-zoom");
+    button2.textContent = t("zoom.app", { percent: appZoom });
+    button2.classList.toggle("hidden", appZoom === 100);
+  }
+  async function setAppZoom(percent) {
+    const reply = await call("setAppZoom", percent);
+    appZoom = Number(reply?.zoom) || 100;
+    renderAppZoom();
+  }
+  function stepAppZoom(direction) {
+    const index = APP_ZOOM_STEPS.indexOf(appZoom);
+    const here = index >= 0 ? index : APP_ZOOM_STEPS.indexOf(100);
+    const next = APP_ZOOM_STEPS[Math.max(0, Math.min(APP_ZOOM_STEPS.length - 1, here + direction))];
+    if (next !== appZoom) setAppZoom(next);
+  }
+  var lastAppWheel = 0;
+  function onAppWheel(event3) {
+    if (!(event3.ctrlKey || event3.metaKey) || event3.defaultPrevented) return;
+    event3.preventDefault();
+    const now = performance.now();
+    if (event3.deltaY === 0 || now - lastAppWheel < 120) return;
+    lastAppWheel = now;
+    stepAppZoom(event3.deltaY < 0 ? 1 : -1);
+  }
+  function initAppZoom() {
+    window.addEventListener("wheel", onAppWheel, { passive: false });
+    $6("st-zoom").addEventListener("click", () => setAppZoom(100));
+    call("appZoom").then((reply) => {
+      appZoom = Number(reply?.zoom) || 100;
+      renderAppZoom();
+    });
+  }
   function onKey(event3) {
     if (event3.key === "F11" || event3.ctrlKey && event3.metaKey && event3.key.toLowerCase() === "f") {
       event3.preventDefault();
@@ -36763,6 +36856,12 @@
     }
     const mod = event3.ctrlKey || event3.metaKey;
     if (!mod) return;
+    if (!event3.altKey && ["+", "=", "-", "_", "0"].includes(event3.key) && !$6("preview-pane").contains(document.activeElement)) {
+      event3.preventDefault();
+      if (event3.key === "0") setAppZoom(100);
+      else stepAppZoom(event3.key === "-" || event3.key === "_" ? -1 : 1);
+      return;
+    }
     const key = event3.key.toLowerCase();
     const has = !!state.info?.hasDocument;
     if (key === "z" && has) {
@@ -36830,7 +36929,7 @@
         updateScenePanel(state.line);
         if (state.mode === "hybrid" && block && place) showHybrid({ block, place });
       },
-      openInsertMenu: (anchor, place, kinds) => showPopup(anchor, insertItems(kinds, (kind) => insert(kind, place))),
+      openInsertMenu: (anchor, place, kinds) => showPopup(anchor, groupedInsertItems(kinds, (kind, variant) => insert(kind, place, variant))),
       openContextMenu: (event3, place) => openContextMenu(event3, place),
       // M6 part C2: why a block may not go somewhere, and who no longer knows something.
       flash: (text) => flashStatus(text),
@@ -37035,6 +37134,7 @@
     $6("tb-handouts").addEventListener("click", () => setHandoutsOnly(!state.handoutsOnly));
     $6("tb-fullscreen").addEventListener("click", () => setFullScreen(!fullScreen));
     initAbout();
+    initAppZoom();
     on("fullScreenChanged", (on4) => {
       fullScreen = !!on4;
       renderFullScreen();

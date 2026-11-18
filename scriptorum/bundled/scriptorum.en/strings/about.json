@@ -27,6 +27,7 @@
   "what.cryptography": "Checks the project's signature on updates",
   "what.cytoscape": "The relationship chart in the app",
   "what.phosphor": "Toolbar icons",
+  "what.logo": "The logo (made with an AI image tool)",
   "what.package.fletcher": "The printed relationship chart",
   "what.package.cetz": "Drawing, used by fletcher",
   "what.package.oxifmt": "Number formatting, used by CeTZ",

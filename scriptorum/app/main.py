@@ -85,6 +85,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.view)
         self.resize(1440, 900)
         self.update_title()
+        # F9 (M6-0.6.10, issue #16): the window opens at the zoom it was left at.
+        self.page.loadFinished.connect(lambda _ok: self.apply_app_zoom())
         self.load_page(self.view, "index.html")
 
     @property
@@ -122,6 +124,13 @@ class MainWindow(QMainWindow):
             return
         html = file.read_text("utf-8").replace("script-src 'self' qrc:;", "script-src 'self' qrc: 'unsafe-eval';", 1)
         view.setHtml(html, QUrl.fromLocalFile(str(file)))
+
+    # --- the window's zoom (F9, M6-0.6.10, issue #16) --------------------------------
+    def apply_app_zoom(self) -> int:
+        """Show the interface at the zoom kept in the app settings (F18)."""
+        percent = int(self.session.app_settings.get("app_zoom") or 100)
+        self.view.setZoomFactor(percent / 100)
+        return percent
 
     # --- full screen (F9, M6 part B) -------------------------------------------------
     def set_full_screen(self, on: bool) -> None:

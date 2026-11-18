@@ -39,7 +39,6 @@ import shutil
 import subprocess
 import sys
 import urllib.request
-import zipfile
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent
@@ -606,28 +605,6 @@ def package_windows(dist: Path, out: Path, version: str, args) -> Path:
 
 
 # --- 7. finish ---------------------------------------------------------------------------------
-def source_archive(copy: Path, out: Path, version: str) -> Path:
-    """The source the installers were built from, with this kit, for the GPL (section 7)."""
-    target = out / f"Scriptorum-{version}-source.zip"
-    stamp = (1980, 1, 1, 0, 0, 0)
-    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zf:
-        def add(root: Path, prefix: str, skip_top: set) -> None:
-            for path in sorted(root.rglob("*")):
-                rel = path.relative_to(root)
-                if rel.parts and rel.parts[0] in skip_top:
-                    continue
-                if any(part in SKIP_DIRS for part in rel.parts) or not path.is_file():
-                    continue
-                info = zipfile.ZipInfo(f"{prefix}/{rel.as_posix()}", stamp)
-                info.external_attr = (0o755 if os.access(path, os.X_OK) else 0o644) << 16
-                info.compress_type = zipfile.ZIP_DEFLATED
-                zf.writestr(info, path.read_bytes())
-        top = f"Scriptorum-{version}"
-        add(copy, top, set())
-        add(KIT, f"{top}/packaging", {"work", "dist"})
-    return target
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build the Scriptorum installer for this computer (F10).")
     parser.add_argument("source", nargs="?", help="the unpacked Scriptorum build folder, e.g. ~/Downloads/M6-0.6.5")
@@ -700,23 +677,21 @@ def main() -> int:
     say("6/7 package")
     if plat == "linux":
         target = package_linux(dist, out, version, arch)
-        notes = "INSTALL-Linux.txt"
     elif plat == "macos":
         target = package_macos(dist, out, version, arch)
-        notes = "INSTALL-macOS.txt"
     else:
         target = package_windows(dist, out, version, args)
-        notes = "INSTALL-Windows.txt"
 
+    # F10 (M6-0.6.10, kit 1.0.4, issue #25): only the installer is written.
+    # Its install notes are inside it (and the Linux notes in the release
+    # description); the installers job writes one SHA256SUMS.txt for every
+    # installer of a release; GitHub's source archives of the tag hold the
+    # app and this kit.
     say("7/7 finish")
-    shutil.copy2(KIT / "user-docs" / notes, out / notes)
-    source_zip = source_archive(copy, out, version)
-    sums = out / f"SHA256SUMS-{plat}-{arch}.txt"
-    sums.write_text("".join(f"{sha256(p)}  {p.name}\n" for p in (target, source_zip)), "utf-8")
     size = target.stat().st_size / 1e6
     stamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     say(f"done {stamp}: {target} ({size:.0f} MB)")
-    say(f"     {source_zip.name}, {sums.name} and {notes} are beside it")
+    say(f"     SHA-256 {sha256(target)}")
     return 0
 
 

@@ -60,5 +60,7 @@
   "insertReadOnly": "This adventure is read-only",
   "enterFullScreen": "Enter full screen",
   "exitFullScreen": "Exit full screen",
-  "insertClue": "Clue"
+  "insertClue": "Clue",
+  "groupText": "Text",
+  "groupOther": "Other"
 }

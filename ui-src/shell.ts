@@ -199,7 +199,7 @@ export function modeSwitch(): HTMLElement {
 
 // --- toolbar insert groups (F9) ---------------------------------------------------------
 
-const GROUPS: { id: string; icon: string }[] = [
+export const GROUPS: { id: string; icon: string }[] = [
   { id: "structure", icon: iconStructure },
   { id: "boxes", icon: iconBoxes },
   { id: "people", icon: iconPeople },
@@ -208,7 +208,7 @@ const GROUPS: { id: string; icon: string }[] = [
 ];
 
 // The order inside each group, as in the design document (F9).
-const GROUP_ORDER: Record<string, string[]> = {
+export const GROUP_ORDER: Record<string, string[]> = {
   // F4 (M6 part C): the three sub-heading levels follow the scene.
   structure: ["heading", "scene", "heading-3", "heading-4", "heading-5", "scene-end", "page-break", "column-break"],
   boxes: ["read-aloud", "information:secret", "information:public", "information:hint", "box", "quote"],

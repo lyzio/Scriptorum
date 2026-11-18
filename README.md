@@ -1,3 +1,5 @@
+<p align="center"><img src="scriptorum/ui/logo.png" width="240" alt="Scriptorum logo"></p>
+
 # Scriptorum
 Note that this is a purely AI-written software, by human design and ideas. Since i needed something quick for a design, but liked the idea for others.
 
@@ -55,9 +57,10 @@ Please open an [issue](https://github.com/lyzio/Scriptorum/issues) with what you
 | Phosphor Icons 2.1.1 | Toolbar icons | MIT |
 | fletcher, CeTZ, oxifmt | The printed relationship chart, inside the themes | MIT, LGPL 3, MIT-0 |
 | Open fonts | Every font in the themes and the handwriting hands | SIL OFL 1.1, Apache 2.0 |
+| Scriptorum logo | The logo, made with an AI image tool | CC BY-SA 4.0 |
 
 Help ▸ About Scriptorum lists every part with its version and full licence text, and works offline.
 
 ## Licence
 
-Scriptorum is free software under the GNU General Public License, version 3 or later (GPL-3.0-or-later); see [COPYING](COPYING). Every part it is built on is compatible with that licence. The themes named after published games are unofficial, fan-made looks, not affiliated with or endorsed by the owners of those games, and use no text, artwork or logos of theirs
+Scriptorum is free software under the GNU General Public License, version 3 or later (GPL-3.0-or-later); see [COPYING](COPYING). Every part it is built on is compatible with that licence. The logo was made with an AI image tool and is licensed CC BY-SA 4.0 ([docs/logo](docs/logo)). The themes named after published games are unofficial, fan-made looks, not affiliated with or endorsed by the owners of those games, and use no text, artwork or logos of theirs

@@ -496,6 +496,20 @@ class Bridge(QObject):
             QDesktopServices.openUrl(QUrl(page))
         return _json({"ok": True})
 
+    # --- the window's zoom (F9, M6-0.6.10, issue #16) ---------------------------
+    @Slot(result=str)
+    def appZoom(self) -> str:
+        return _json({"zoom": int(self.session.app_settings.get("app_zoom") or 100)})
+
+    @Slot(int, result=str)
+    def setAppZoom(self, percent: int) -> str:
+        """Store the window's zoom (one of the steps, F18) and show it."""
+        self.session.app_settings.update({"app_zoom": int(percent)})
+        zoom = int(self.session.app_settings.get("app_zoom") or 100)
+        if self.window is not None and hasattr(self.window, "apply_app_zoom"):
+            zoom = self.window.apply_app_zoom()
+        return _json({"zoom": zoom})
+
     # --- full screen (F9, M6 part B) ---------------------------------------------
     @Slot(bool, result=str)
     def setFullScreen(self, on: bool) -> str:
