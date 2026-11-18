@@ -44,6 +44,7 @@ The same two as before: pasted labels stay after converting (issue #2, planned f
 - **T-MOD-26** (`tests/test_m6e.py`): the case where a theme must be picked can no longer happen with the bundled modules (both game systems have the same blocks), so the test makes it with a stand-in.
 - **T-UI-19** (`tests/test_ui_m4.py`): theme names no longer carry a "made for" hint.
 - **check-themes and the zoom bar** (`tests/test_ui_m5.py`): the self-test builds 8 pairs; the zoom bar ends with Follow.
+- **T-UI-04** (`tests/test_ui_smoke.py`), after your Linux run (391 passed, 1 failed): it expected "Page 1 of" after putting the cursor in a read-aloud. Since the preview follows the editor (#21), the status bar shows the page the read-aloud is on, page 2 on your machine; here the window settled before following. The test now checks the form "Page N of M".
 
 ## Tests added
 

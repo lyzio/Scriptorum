@@ -7,6 +7,7 @@ through the Milestone 1 checklist.
 from __future__ import annotations
 
 import json
+import re
 import os
 import time
 
@@ -228,7 +229,9 @@ def test_T_UI_04_status_bar_and_export(ui):
     status = ui.state()["status"]
     line, page, words, problems, export = status
     assert line.startswith("Line ")
-    assert page.startswith("Page 1 of ")
+    # Corrected for 0.7.0 step 2 (#21): the preview follows the editor, so the
+    # page shown is the read-aloud's page, not always the first.
+    assert re.fullmatch(r"Page \d+ of \d+", page), page
     assert words.endswith(" words")
     assert problems == "No errors"
     assert export.startswith("Last export ") and export.endswith("export.pdf")
