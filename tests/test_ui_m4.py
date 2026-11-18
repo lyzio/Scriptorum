@@ -179,7 +179,8 @@ def test_T_UI_19_settings_window_with_adventure(ui):
     assert ui.js("document.getElementById('sn-adventure-name').textContent") == "Jätten Finns skuld"
     themes = ui.js("[...document.querySelectorAll('#set-theme option')].map(o => o.textContent)")
     # M5: the Plain theme is the first of the general themes (F8).
-    assert themes == ["Vaesen", "Plain (for every game system)", "Call of Cthulhu (for every game system)", "Legends and Lattes (for every game system)"]
+    # Corrected for 0.7.0 (F8, issue #23): no "for every game system" hint any more.
+    assert themes == ["Vaesen", "Plain", "Call of Cthulhu", "Legends and Lattes"]
     before = ui.builds()
     ui.js("const s = document.getElementById('set-theme'); s.value = 'scriptorum.call-of-cthulhu'; s.dispatchEvent(new Event('change')); true")
     ui.wait_until(lambda: ui.window.bridge.session.adventure.theme.id == "scriptorum.call-of-cthulhu", 10)

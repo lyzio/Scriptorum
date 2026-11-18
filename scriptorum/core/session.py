@@ -141,8 +141,9 @@ class Session:
 
     # --- library -----------------------------------------------------------------
     def game_systems(self) -> List[dict]:
-        """For File → New: installed game systems and the themes for each."""
-        from scriptorum.core.modules import theme_offered_for
+        """For File → New: installed game systems, the themes offered for
+        each and the themes locked for it, with the reason (F8, #23)."""
+        from scriptorum.core.modules import theme_made_for, theme_missing, theme_offered_for
 
         result = []
         themes = self.library.of_kind("theme")
@@ -150,18 +151,33 @@ class Session:
         # system and Plain theme, is offered first, so File → New preselects it.
         systems = sorted(self.library.of_kind("game-system"), key=lambda m: not m.manifest.get("standard"))
         for gs in systems:
-            matching = []
-            # F8: the game system's own themes first, then the general themes,
-            # the standard one first among those.
-            for th in sorted(themes, key=lambda t: (not any(r["id"] == gs.id for r in t.manifest["requires"]),
-                                                    not t.manifest.get("standard"), t.name)):
+            matching, locked = [], []
+            # F8: a theme made for the game system first (``made_for``, which
+            # is never shown), then the standard one, then by name.
+            for th in sorted(themes, key=lambda t: (not theme_made_for(t, gs), not t.manifest.get("standard"), t.name)):
                 if theme_offered_for(self.library, th, gs):
                     matching.append({"id": th.id, "version": th.version, "name": th.name,
-                                     "general": not any(r["id"] == gs.id for r in th.manifest["requires"]),
+                                     "general": not theme_made_for(th, gs),
                                      "standard": bool(th.manifest.get("standard"))})
-            result.append({"id": gs.id, "version": gs.version, "name": gs.name, "themes": matching,
+                else:
+                    # F8 (#23): a locked theme is shown greyed out, with what it lacks.
+                    missing = theme_missing(self.library, th, gs)
+                    locked.append({"id": th.id, "version": th.version, "name": th.name,
+                                   "missing": [self.kind_name(k) for k in missing],
+                                   "reason": self.t("theme.locked", blocks=", ".join(self.kind_name(k) for k in missing))
+                                   if missing else self.t("theme.lockedOther")})
+            result.append({"id": gs.id, "version": gs.version, "name": gs.name, "themes": matching, "locked": locked,
                            "standard": bool(gs.manifest.get("standard"))})
         return result
+
+    def kind_name(self, kind_id: str) -> str:
+        """An element kind's name in the interface's words, for messages (F15)."""
+        for kit in self.library.of_kind("element-kit") + self.library.of_kind("game-system"):
+            definition = kit.element_kinds().get(kind_id)
+            if definition is not None:
+                name = definition.get("name", kind_id)
+                return kit.labels().get(name, name)
+        return self.t(f"theme.page.{kind_id}") if kind_id in ("codex-card", "end-clues", "end-index") else kind_id
 
     # --- files --------------------------------------------------------------------
     def _start_builder(self) -> None:
@@ -625,7 +641,11 @@ class Session:
             raise ModuleError("error.module.notInstalled", id=ref.id, version=version)
         game = module if which == "gameSystem" else self.library.get(self.adventure.game_system.id, self.adventure.game_system.version)
         theme = module if which == "theme" else self._theme()
-        if game is None or theme is None or not theme_offered_for(self.library, theme, game):
+        # F8 (#23): another version of the adventure's own theme may be tried
+        # even when it lacks a block: the adventure keeps building, the block
+        # in the generic frame with a warning (9.6, T-MOD-24).
+        same_theme = which == "theme" and theme is not None and theme.id == self.adventure.theme.id
+        if game is None or theme is None or not (same_theme or theme_offered_for(self.library, theme, game)):
             raise ModuleError("error.module.versionNotOffered", theme=theme.name if theme else self.adventure.theme.id,
                               game=game.name if game else self.adventure.game_system.id, version=version)
         self.version_preview = {
@@ -855,6 +875,12 @@ class Session:
         """Element definitions and their labels, for the Visual editor (F4.3)."""
         labels = self.labels()
         elements = []
+        # F7.4 (0.7.0, issue #20): the Columns section is offered only while
+        # the page has one column; one already in the text still edits.
+        try:
+            one_column = int(self.page_settings()["values"].get("columns", 1)) == 1 if self.adventure else True
+        except Exception:  # noqa: BLE001 - no theme yet: nothing to decide
+            one_column = True
         for kind_id, d in self.kinds().items():
             fields = []
             for f in d.get("fields", []):
@@ -887,6 +913,7 @@ class Session:
                 "module": d.get("module"),
                 "newLook": bool(d.get("new_look")),
                 "codexRef": d.get("codex_ref"),
+                "offered": one_column or not d.get("only_one_column"),
             })
         return {"elements": elements}
 
@@ -1019,6 +1046,8 @@ class Session:
             "gameSystemId": self.adventure.game_system.id,
             "gameSystems": [{"id": g["id"], "version": g["version"], "name": g["name"]} for g in self.game_systems()],
             "themes": [{"id": t["id"], "name": t["name"], "general": t.get("general", False)} for t in self.themes_offered()],
+            # F8 (#23): the themes locked for this game system, with the reason.
+            "themesLocked": [{"id": t["id"], "name": t["name"], "reason": t["reason"]} for t in self.themes_locked()],
             # F14.3 (M6): the installed versions of both, and a version on trial.
             "versions": self.module_versions(),
             "versionPreview": self.version_preview,
@@ -1195,6 +1224,14 @@ class Session:
         for gs in self.game_systems():
             if gs["id"] == gs_id:
                 return gs["themes"]
+        return []
+
+    def themes_locked(self) -> List[dict]:
+        """F8 (#23): the themes locked for this adventure's game system."""
+        gs_id = self.adventure.game_system.id
+        for gs in self.game_systems():
+            if gs["id"] == gs_id:
+                return gs.get("locked", [])
         return []
 
     def set_theme(self, theme_id: str, version: Optional[str] = None) -> dict:

@@ -33,7 +33,8 @@ os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --disable-gpu"
 # What F19 says each guide covers: (topic, words a section heading or text must hold).
 THEME_TOPICS = [
     ("what a theme is and may change", "What a theme is and what it may change"),
-    ("general or single game system", "A general theme or one for a single game system"),
+    # Corrected for 0.7.0 (F8, issue #23): which game systems a theme is offered for.
+    ("general or single game system", "Which game systems your theme is offered for"),
     ("the folder and its manifest", "The manifest"),
     ("one template per element kind, with what each receives", "The templates"),
     ("page setup and settings.json", "Page setup and settings.json"),
@@ -155,9 +156,15 @@ def test_T_MOD_14_game_system_guide_example(library, session, tmp_path):
         "requires": [{"id": gs.id, "version": "1.x"}]}, [template])
     th = library.install_folder(ink)
     try:
-        offered = {g["id"]: {t["id"] for t in g["themes"]} for g in session.game_systems()}
-        assert {"scriptorum.plain", "scriptorum.legends-and-lattes", "scriptorum.call-of-cthulhu", th.id} <= offered[gs.id]
-        assert th.id not in offered["scriptorum.free-league-vaesen"]
+        # Corrected for 0.7.0 (F8, issue #23): a theme is offered only where it
+        # styles every block, so the bundled themes, which have no Rumour
+        # template, are locked for Harbour Tales and say why; the harbour
+        # theme (a copy of Plain with the Rumour) is offered for Vaesen too.
+        systems = {g["id"]: g for g in session.game_systems()}
+        assert {t["id"] for t in systems[gs.id]["themes"]} == {th.id}
+        locked = {t["id"]: t["reason"] for t in systems[gs.id]["locked"]}
+        assert locked["scriptorum.plain"] == "no styling for: Rumour"
+        assert th.id in {t["id"] for t in systems["scriptorum.free-league-vaesen"]["themes"]}
         kinds = session_kinds = None
         session.new("Hamnen", gs.id, gs.version, th.id, th.version)
         session_kinds = session.kinds()
@@ -173,8 +180,11 @@ def test_T_MOD_14_game_system_guide_example(library, session, tmp_path):
         text = "".join(page.extract_text() for page in PdfReader(io.BytesIO(result.output[0])).pages)
         flat = re.sub(r"\s", "", text).upper()
         assert "RUMOUR" in flat and "OLDMAJA" in flat and "BRAWN" in flat and "3D10" in flat
-        # A general theme draws the Rumour in its plain frame and says so.
+        # An adventure whose theme lacks the Rumour (one that became locked
+        # later, F8) draws it in the plain frame and says so.
+        session.themes_offered = lambda: [{"id": "scriptorum.plain", "version": "1.0.0", "name": "Plain"}]
         session.set_theme("scriptorum.plain")
+        del session.themes_offered
         result = session.build("pdf")
         assert result.ok and any(p.key == "warning.build.genericFrame" and p.details["element"] == "rumour" for p in result.warnings)
         # A wrong value is reported on the author's line, in plain words.

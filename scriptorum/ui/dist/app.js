@@ -896,6 +896,7 @@
       for (const def of this.defs.values()) {
         if (def.id === "scene" && chain.length > 0) continue;
         if (def.onlyInside && def.onlyInside.length) continue;
+        if (def.offered === false) continue;
         kinds.push(def.id);
       }
       return kinds;
@@ -35232,13 +35233,14 @@
   }
   function insertItems(kinds, onPick) {
     const pick = onPick ?? ((kind) => insert(kind));
-    const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside).map((d) => d.id), "table", "image"];
+    const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside && d.offered !== false).map((d) => d.id), "table", "image"];
     const items = [];
     for (const kind of ["paragraph", "heading", ...SUB_HEADINGS, "scene-end"]) {
       if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
     }
     const seenGroups = /* @__PURE__ */ new Set();
-    for (const def of state.defs.filter((d) => d.category !== "layout" && allowed.includes(d.id))) {
+    const isLayout = (d) => d.category === "layout" || LAYOUT_KINDS.includes(d.id);
+    for (const def of state.defs.filter((d) => !isLayout(d) && allowed.includes(d.id))) {
       let shortcut = def.shortcut ?? void 0;
       if (def.shortcutGroup) {
         if (seenGroups.has(def.shortcutGroup)) shortcut = void 0;
@@ -35250,14 +35252,14 @@
     for (const kind of ["table", "image"]) {
       if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
     }
-    const layout4 = state.defs.filter((d) => d.category === "layout" && allowed.includes(d.id));
+    const layout4 = state.defs.filter((d) => isLayout(d) && allowed.includes(d.id));
     if (layout4.length) {
       items.push({ label: t("menu.layout"), heading: true });
       for (const def of layout4) items.push({ label: def.name, action: () => pick(def.id), shortcut: def.shortcut ?? void 0 });
     }
     return items;
   }
-  var LAYOUT_KINDS = ["full-width", "keep-together", "contents"];
+  var LAYOUT_KINDS = ["full-width", "column-section", "keep-together", "contents"];
   function groupedInsertItems(kinds, pick) {
     const used = /* @__PURE__ */ new Set();
     const columns = [];
@@ -35440,6 +35442,13 @@
         const option = document.createElement("option");
         option.value = JSON.stringify(theme);
         option.textContent = theme.name;
+        th.append(option);
+      }
+      for (const theme of systems[Number(gs.value)]?.locked ?? []) {
+        const option = document.createElement("option");
+        option.disabled = true;
+        option.className = "locked";
+        option.textContent = t("settings.themeLocked", { name: theme.name, reason: theme.reason });
         th.append(option);
       }
     };
@@ -36203,6 +36212,71 @@
     applyZoom();
     updateStatus();
   }
+  var follow = true;
+  var lastFollowed = "";
+  var lastManualPreview = 0;
+  var previewScrollingByUs = 0;
+  var MANUAL_PAUSE_MS = 2e3;
+  function renderFollow() {
+    $6("zoom-follow").setAttribute("aria-pressed", String(follow));
+  }
+  function spotFor(chapter, path) {
+    let best = null;
+    for (const spot of state.elements) {
+      if (spot.chapter !== chapter) continue;
+      if (comparePaths(spot.path, path) > 0) continue;
+      if (!best || comparePaths(spot.path, best.path) > 0) best = spot;
+    }
+    return best;
+  }
+  function comparePaths(a, b) {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+    return a.length - b.length;
+  }
+  function followTo(path) {
+    if (!follow || !previewShown || state.handoutsOnly || state.mode === "source") return false;
+    if (performance.now() - lastManualPreview < MANUAL_PAUSE_MS) return false;
+    const spot = spotFor(state.chapterIndex, path);
+    if (!spot) return false;
+    const img = $6("pages").querySelectorAll("img.page")[spot.page - 1];
+    if (!img || !img.naturalHeight) return false;
+    const pane2 = $6("preview-pane");
+    const heightPt = img.naturalHeight * 0.75;
+    const widthPt = img.naturalWidth * 0.75;
+    const imgBox = img.getBoundingClientRect();
+    const paneBox = pane2.getBoundingClientRect();
+    const y2 = imgBox.top - paneBox.top + pane2.scrollTop + spot.y / heightPt * imgBox.height;
+    const x2 = imgBox.left - paneBox.left + pane2.scrollLeft + spot.x / widthPt * imgBox.width;
+    previewScrollingByUs = performance.now();
+    pane2.scrollTop = Math.max(0, y2 - pane2.clientHeight / 3);
+    pane2.querySelectorAll(".follow-mark").forEach((m) => m.remove());
+    const mark = document.createElement("div");
+    mark.className = "follow-mark";
+    mark.style.top = y2 + "px";
+    mark.style.left = Math.max(2, x2 - 10) + "px";
+    pane2.append(mark);
+    setTimeout(() => mark.remove(), 1300);
+    return true;
+  }
+  function initFollow() {
+    follow = appValues()?.preview_follow !== false;
+    renderFollow();
+    $6("zoom-follow").addEventListener("click", async () => {
+      follow = !follow;
+      renderFollow();
+      await call("setAppSettings", JSON.stringify({ preview_follow: follow }));
+    });
+    const pane2 = $6("preview-pane");
+    const manual = () => {
+      lastManualPreview = performance.now();
+    };
+    pane2.addEventListener("wheel", manual, { passive: true });
+    pane2.addEventListener("pointerdown", manual);
+    pane2.addEventListener("keydown", manual);
+    pane2.addEventListener("scroll", () => {
+      if (performance.now() - previewScrollingByUs > 150) manual();
+    }, { passive: true });
+  }
   function elementAt(page, xPt, yPt, widthPt) {
     const here = state.elements.filter((e) => e.page === page + 1 && e.y <= yPt + 2);
     const sameColumn = here.filter((e) => e.x <= xPt + 4 && xPt - e.x < widthPt / 2);
@@ -36228,6 +36302,8 @@
     if (state.mode === "source") await setMode("visual");
     const found = visual.blockAt(spot.path);
     if (!found) return false;
+    lastManualPreview = performance.now();
+    visual.focusBlock(found.block);
     if (found.block.type !== "element") {
       visual.focusBlock(found.block);
       return true;
@@ -36348,7 +36424,15 @@
     for (const option of info2.themes ?? []) {
       const o = document.createElement("option");
       o.value = option.id;
-      o.textContent = option.general ? t("settings.themeGeneral", { name: option.name }) : option.name;
+      o.textContent = option.name;
+      theme.append(o);
+    }
+    for (const option of info2.themesLocked ?? []) {
+      const o = document.createElement("option");
+      o.value = option.id;
+      o.disabled = option.id !== info2.themeId;
+      o.className = "locked";
+      o.textContent = t("settings.themeLocked", { name: option.name, reason: option.reason });
       theme.append(o);
     }
     theme.value = info2.themeId ?? "";
@@ -36928,6 +37012,14 @@
         updateStatus();
         updateScenePanel(state.line);
         if (state.mode === "hybrid" && block && place) showHybrid({ block, place });
+        if (block && place) {
+          const path = visual.pathOf(place);
+          const key = state.chapterIndex + ":" + path.join(".");
+          if (key !== lastFollowed) {
+            lastFollowed = key;
+            followTo(path);
+          }
+        }
       },
       openInsertMenu: (anchor, place, kinds) => showPopup(anchor, groupedInsertItems(kinds, (kind, variant) => insert(kind, place, variant))),
       openContextMenu: (event3, place) => openContextMenu(event3, place),
@@ -37135,6 +37227,7 @@
     $6("tb-fullscreen").addEventListener("click", () => setFullScreen(!fullScreen));
     initAbout();
     initAppZoom();
+    initFollow();
     on("fullScreenChanged", (on4) => {
       fullScreen = !!on4;
       renderFullScreen();

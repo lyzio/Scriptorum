@@ -681,13 +681,14 @@ function kindLabel(kind: string): string {
 
 function insertItems(kinds?: string[], onPick?: (kind: string) => void): MenuItem[] {
   const pick = onPick ?? ((kind: string) => insert(kind));
-  const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside).map((d) => d.id), "table", "image"];
+  const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside && d.offered !== false).map((d) => d.id), "table", "image"];
   const items: MenuItem[] = [];
   for (const kind of ["paragraph", "heading", ...SUB_HEADINGS, "scene-end"]) {
     if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
   }
   const seenGroups = new Set<string>();
-  for (const def of state.defs.filter((d) => d.category !== "layout" && allowed.includes(d.id))) {
+  const isLayout = (d: ElementDef) => d.category === "layout" || LAYOUT_KINDS.includes(d.id);
+  for (const def of state.defs.filter((d) => !isLayout(d) && allowed.includes(d.id))) {
     let shortcut = def.shortcut ?? undefined;
     if (def.shortcutGroup) {
       if (seenGroups.has(def.shortcutGroup)) shortcut = undefined;
@@ -700,7 +701,8 @@ function insertItems(kinds?: string[], onPick?: (kind: string) => void): MenuIte
   for (const kind of ["table", "image"]) {
     if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
   }
-  const layout = state.defs.filter((d) => d.category === "layout" && allowed.includes(d.id));
+  // The layout markers under their own heading, as in the + menu (F9, F7.4).
+  const layout = state.defs.filter((d) => isLayout(d) && allowed.includes(d.id));
   if (layout.length) {
     items.push({ label: t("menu.layout"), heading: true });
     for (const def of layout) items.push({ label: def.name, action: () => pick(def.id), shortcut: def.shortcut ?? undefined });
@@ -712,7 +714,7 @@ function insertItems(kinds?: string[], onPick?: (kind: string) => void): MenuIte
  * elements in groups shown side by side: Text, the toolbar's groups in the
  * toolbar's order, Layout and Other. Only what is allowed at that place is
  * listed, and a group with nothing in it is left out. */
-const LAYOUT_KINDS = ["full-width", "keep-together", "contents"];
+const LAYOUT_KINDS = ["full-width", "column-section", "keep-together", "contents"];
 
 function groupedInsertItems(kinds: string[], pick: (kind: string, variant?: string) => void): MenuItem[] {
   const used = new Set<string>();
@@ -921,6 +923,14 @@ async function openNewDialog(): Promise<void> {
       const option = document.createElement("option");
       option.value = JSON.stringify(theme);
       option.textContent = theme.name;
+      th.append(option);
+    }
+    // F8 (#23): a theme locked for this game system, greyed out with the reason.
+    for (const theme of systems[Number(gs.value)]?.locked ?? []) {
+      const option = document.createElement("option");
+      option.disabled = true;
+      option.className = "locked";
+      option.textContent = t("settings.themeLocked", { name: theme.name, reason: theme.reason });
       th.append(option);
     }
   };
@@ -1802,6 +1812,81 @@ function renderPages(): void {
   updateStatus();
 }
 
+// --- the preview follows the Visual editor (F7.2, 0.7.0, issue #21) ------------------------
+
+let follow = true;
+let lastFollowed = ""; // the block followed to last, so typing in it does not scroll again
+let lastManualPreview = 0;
+let previewScrollingByUs = 0;
+const MANUAL_PAUSE_MS = 2000;
+
+function renderFollow(): void {
+  $("zoom-follow").setAttribute("aria-pressed", String(follow));
+}
+
+/** The element of a block, or for a paragraph the nearest element before it
+ * in the same chapter (the build's element map, F12). */
+function spotFor(chapter: number, path: number[]): ElementSpot | null {
+  let best: ElementSpot | null = null;
+  for (const spot of state.elements) {
+    if (spot.chapter !== chapter) continue;
+    if (comparePaths(spot.path, path) > 0) continue;
+    if (!best || comparePaths(spot.path, best.path) > 0) best = spot;
+  }
+  return best;
+}
+
+function comparePaths(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return a.length - b.length;
+}
+
+/** Scroll the preview to a block and mark it for a moment. */
+function followTo(path: number[]): boolean {
+  if (!follow || !previewShown || state.handoutsOnly || state.mode === "source") return false;
+  if (performance.now() - lastManualPreview < MANUAL_PAUSE_MS) return false;
+  const spot = spotFor(state.chapterIndex, path);
+  if (!spot) return false;
+  const img = $("pages").querySelectorAll<HTMLImageElement>("img.page")[spot.page - 1];
+  if (!img || !img.naturalHeight) return false;
+  const pane = $("preview-pane");
+  const heightPt = img.naturalHeight * 0.75;
+  const widthPt = img.naturalWidth * 0.75;
+  const imgBox = img.getBoundingClientRect();
+  const paneBox = pane.getBoundingClientRect();
+  const y = imgBox.top - paneBox.top + pane.scrollTop + (spot.y / heightPt) * imgBox.height;
+  const x = imgBox.left - paneBox.left + pane.scrollLeft + (spot.x / widthPt) * imgBox.width;
+  previewScrollingByUs = performance.now();
+  pane.scrollTop = Math.max(0, y - pane.clientHeight / 3);
+  pane.querySelectorAll(".follow-mark").forEach((m) => m.remove());
+  const mark = document.createElement("div");
+  mark.className = "follow-mark";
+  mark.style.top = y + "px";
+  mark.style.left = Math.max(2, x - 10) + "px";
+  pane.append(mark);
+  setTimeout(() => mark.remove(), 1300);
+  return true;
+}
+
+function initFollow(): void {
+  follow = appValues()?.preview_follow !== false;
+  renderFollow();
+  $("zoom-follow").addEventListener("click", async () => {
+    follow = !follow;
+    renderFollow();
+    await call("setAppSettings", JSON.stringify({ preview_follow: follow }));
+  });
+  const pane = $("preview-pane");
+  // Scrolling or zooming the preview by hand pauses following for a moment.
+  const manual = () => { lastManualPreview = performance.now(); };
+  pane.addEventListener("wheel", manual, { passive: true });
+  pane.addEventListener("pointerdown", manual);
+  pane.addEventListener("keydown", manual);
+  pane.addEventListener("scroll", () => {
+    if (performance.now() - previewScrollingByUs > 150) manual();
+  }, { passive: true });
+}
+
 /** The element under a point of a page (positions in pt from the build). */
 function elementAt(page: number, xPt: number, yPt: number, widthPt: number): ElementSpot | null {
   const here = state.elements.filter((e) => e.page === page + 1 && e.y <= yPt + 2);
@@ -1830,6 +1915,9 @@ async function openPopoverAt(page: number, xPt: number, yPt: number, widthPt: nu
   if (state.mode === "source") await setMode("visual");
   const found = visual.blockAt(spot.path);
   if (!found) return false;
+  // F7.2 (issue #21): a click in the preview also moves the editor to the block.
+  lastManualPreview = performance.now();
+  visual.focusBlock(found.block);
   if (found.block.type !== "element") {
     // An inline element inside a paragraph: show the paragraph.
     visual.focusBlock(found.block);
@@ -1974,7 +2062,17 @@ function fillSettings(info: any, values: boolean): void {
   for (const option of info.themes ?? []) {
     const o = document.createElement("option");
     o.value = option.id;
-    o.textContent = option.general ? t("settings.themeGeneral", { name: option.name }) : option.name;
+    o.textContent = option.name; // F8 (#23): no "made for" hint
+    theme.append(o);
+  }
+  // F8 (#23): themes locked for this game system, greyed out with the reason;
+  // the adventure's own theme stays selected even when it has become locked.
+  for (const option of info.themesLocked ?? []) {
+    const o = document.createElement("option");
+    o.value = option.id;
+    o.disabled = option.id !== info.themeId;
+    o.className = "locked";
+    o.textContent = t("settings.themeLocked", { name: option.name, reason: option.reason });
     theme.append(o);
   }
   theme.value = info.themeId ?? "";
@@ -2643,6 +2741,15 @@ async function boot(): Promise<void> {
       updateStatus();
       updateScenePanel(state.line);
       if (state.mode === "hybrid" && block && place) showHybrid({ block, place });
+      // F7.2 (issue #21): the preview follows the block that has the cursor.
+      if (block && place) {
+        const path = visual.pathOf(place);
+        const key = state.chapterIndex + ":" + path.join(".");
+        if (key !== lastFollowed) {
+          lastFollowed = key;
+          followTo(path);
+        }
+      }
     },
     openInsertMenu: (anchor, place, kinds) => showPopup(anchor, groupedInsertItems(kinds, (kind, variant) => insert(kind, place, variant))),
     openContextMenu: (event, place) => openContextMenu(event, place),
@@ -2852,6 +2959,7 @@ async function boot(): Promise<void> {
   $("tb-fullscreen").addEventListener("click", () => setFullScreen(!fullScreen));
   initAbout();
   initAppZoom();
+  initFollow();
   on("fullScreenChanged", (on: boolean) => {
     fullScreen = !!on;
     renderFullScreen();

@@ -9,5 +9,7 @@
   "spread": "Two pages",
   "ownWindow": "Own window",
   "app": "Zoom {percent} %",
-  "appReset": "The size of the whole window. Click, or press Ctrl+0, to go back to 100 %."
+  "appReset": "The size of the whole window. Click, or press Ctrl+0, to go back to 100 %.",
+  "follow": "Follow",
+  "followHint": "The preview scrolls to the block you are writing in"
 }

@@ -936,7 +936,10 @@ def game_system_steps(s: Scenario, window: MainWindow) -> None:
         p.value = 'scriptorum.plain-system@1.0.0'; p.dispatchEvent(new Event('change')); return true; })()""", 1200)
     asked = s.js("document.getElementById('ask-dialog').open ? document.getElementById('ask-text').textContent : ''") or ""
     s.check("a list says what does not fit, before the preview", asked.startswith("Change to Plain?"))
-    s.check("the theme made for Vaesen is swapped for one made for Plain", "is not made for Plain" in asked)
+    # 0.7.0 step 2 (#23): a theme is offered for every game system whose
+    # blocks it styles, so the Vaesen theme stays with Plain.
+    s.check("the Vaesen theme stays, since it styles every block of Plain (#23)", "is not made for Plain" not in asked)
+    s.check("the theme stays after the change", window.bridge.session.adventure.theme.id == "scriptorum.vaesen")
     s.shot("game-system-fit")
     s.act("Try it in the preview", "window.__u.click('#ask-yes')", 2500)
     bar = s.js("document.getElementById('version-bar').classList.contains('hidden') ? '' : document.getElementById('version-bar-text').textContent") or ""
@@ -949,6 +952,12 @@ def game_system_steps(s: Scenario, window: MainWindow) -> None:
     s.check("it still builds", s.state()["errors"] == [])
     s.act("Undo", "window.__scriptorum.undo()", 2500)
     s.check("one undo brings Vaesen back", window.bridge.session.adventure.game_system.id == "scriptorum.free-league-vaesen")
+    # 0.7.0 step 2 (#21): the preview follows the editor.
+    follow = s.js("document.getElementById('zoom-follow').getAttribute('aria-pressed')")
+    s.check("the preview's Follow switch is on (#21)", follow == "true")
+    s.act("Click into the last scene", "window.__u.focus('#visual .el-scene .rich', document.querySelectorAll('#visual .el-scene .rich').length - 1)", 500)
+    s.check("the preview shows a mark where the editor is (#21)", bool(s.js("!!document.querySelector('#preview-pane .follow-mark')")))
+    s.shot("preview-follows")
 
 
 def fix_0610_steps(s: Scenario, window: MainWindow) -> None:

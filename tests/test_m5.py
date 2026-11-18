@@ -42,7 +42,10 @@ def test_T_MOD_13_plain_is_offered_first(session):
     vaesen = next(g for g in systems if g["id"] == "scriptorum.free-league-vaesen")
     assert vaesen["themes"][0]["id"] == "scriptorum.vaesen"
     assert "scriptorum.plain" in {t["id"] for t in vaesen["themes"]}
-    assert "scriptorum.vaesen" not in {t["id"] for t in systems[0]["themes"]}
+    # Corrected for 0.7.0 (F8, issue #23): every theme with every game system
+    # it styles, so the Vaesen theme is offered for Plain too, after Plain.
+    assert systems[0]["themes"][0]["id"] == "scriptorum.plain"
+    assert "scriptorum.vaesen" in {t["id"] for t in systems[0]["themes"]}
 
 
 @pytest.mark.unit
@@ -258,7 +261,8 @@ def test_T_UI_26_theme_self_test(session):
     lines = theme_self_test(session)
     pairs = {(l["theme"], l["gameSystem"]) for l in lines}
     assert ("Plain", "Plain") in pairs and ("Plain", "Vaesen") in pairs and ("Vaesen", "Vaesen") in pairs
-    assert ("Vaesen", "Plain") not in pairs
+    # Corrected for 0.7.0 (F8, issue #23): the Vaesen theme is offered for Plain too.
+    assert ("Vaesen", "Plain") in pairs
     assert all(l["ok"] for l in lines), [l for l in lines if not l["ok"]]
 
 

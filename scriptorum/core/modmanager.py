@@ -137,25 +137,20 @@ def check_json(module: Module) -> None:
 
 
 def check_renderers(library: Library, module: Module) -> None:
-    """9.7.7: a theme has a renderer, or relies on the generic frame, for
-    every element kind of the game systems it supports."""
-    from scriptorum.core.build import Builder
-    from scriptorum.core.scav import ModuleRef, new_adventure
+    """9.7.7, with F8's coverage rule (0.7.0, issue #23): a theme without
+    the generic frame must be usable by at least one installed game system,
+    that is, have a template for every block it uses. Otherwise it could
+    never be chosen, and it is refused with the first block it lacks."""
+    from scriptorum.core.modules import theme_missing
 
     if module.kind != "theme" or (module.path / "templates" / "_generic.typ").is_file():
         return
-    kits = [ModuleRef(m.id, m.version) for m in library.of_kind("element-kit")]
-    with tempfile.TemporaryDirectory(prefix="scriptorum-check-") as folder:
-        for game in library.of_kind("game-system"):
-            if not theme_offered_for(library, module, game):
-                continue
-            adventure = new_adventure("Test", ModuleRef(game.id, game.version), ModuleRef(module.id, module.version), kits, "")
-            kinds = Builder(library, Path(folder) / game.id).element_kinds(adventure)
-            for kind_id, definition in kinds.items():
-                if definition.get("category") == "layout" or definition.get("always_on"):
-                    continue
-                if not module.has_template(kind_id):
-                    raise ModuleError("error.module.noRenderer", theme=module.name, element=kind_id, game=game.name)
+    games = sorted(library.of_kind("game-system"), key=lambda g: not g.manifest.get("standard"))
+    if not games or any(theme_offered_for(library, module, game) for game in games):
+        return
+    missing = theme_missing(library, module, games[0])
+    raise ModuleError("error.module.noRenderer", theme=module.name, element=missing[0] if missing else "",
+                      game=games[0].name)
 
 
 def compile_problems(library: Library, module: Module) -> List:

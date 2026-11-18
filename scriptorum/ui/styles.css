@@ -714,3 +714,6 @@ body.preview-only .preview-pane { flex: 1; height: 100vh; box-sizing: border-box
 .update-address-row input[type="url"] { flex: 1; min-width: 0; }
 .settings-error { color: var(--error); font-size: 12px; margin: 2px 0 6px; }
 #update-dialog { width: min(600px, 92vw); }
+/* F7.2 (0.7.0, issue #21): the short mark beside the block the preview followed to. */
+.follow-mark { position: absolute; width: 4px; height: 22px; margin-top: -4px; border-radius: 2px; background: var(--accent); pointer-events: none; animation: follow-fade 1.2s ease-out forwards; }
+@keyframes follow-fade { 0% { opacity: 0.95; } 70% { opacity: 0.8; } 100% { opacity: 0; } }

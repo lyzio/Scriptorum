@@ -21,13 +21,17 @@ A theme may not:
 - fill a handout sheet with colour, or print marks too dark for a black-and-white printer (see Handout papers)
 - reach the internet, or contain any program code other than Typst
 
-## A general theme or one for a single game system
+## Which game systems your theme is offered for
 
-A general theme requires only the core element kit, `scriptorum.core`. It is offered for every game system, so it must draw every element of the core element kit, Box and Quote included. Legends and Lattes, Call of Cthulhu and Plain are general themes.
+A theme is offered for a game system when it has a template for every block that game system uses. Which game system you had in mind plays no part: the coverage decides. A game system with a block your theme has no template for cannot use it, and File ▸ New and the adventure settings page show your theme greyed out there, with the reason, for example "no styling for: Creature".
 
-A theme for a single game system requires that game system. It is offered only for that one, and it can also draw the game system's own elements. The Vaesen theme requires the Vaesen game system.
+The blocks are every element the game system turns on that is drawn by a template, plus three pages the core element kit always prints. For the core element kit that is `scene`, `read-aloud`, `information`, `person`, `creature`, `countdown`, `countdown-step`, `dice`, `check`, `handout`, `box`, `quote`, `pacing`, `map`, `relationship-chart` and `contents`, and the pages `codex-card`, `end-clues` and `end-index`. A game system that adds an element of its own needs a template for it too. The layout markers (page break, column break, full-width section, never split, Columns section) and the footnote need none.
 
-The game system and the theme are two separate choices on the adventure settings page. When you are unsure, make a general theme: more adventures can use it.
+Draw every block of the core element kit and your theme is offered for both bundled game systems, Plain and Vaesen, and for every game system that uses only the core element kit. All four bundled themes do this. A template reads the fields it is given and never depends on a field only one game system has, so it works for every game system it is offered for.
+
+If you made the theme for one game, you may name that game system in `made_for` in the manifest. It only puts your theme first in that game system's list; it is never shown and never limits where the theme is offered.
+
+The game system and the theme are two separate choices on the adventure settings page. Draw every block and more adventures can use your theme.
 
 ## Start from a copy
 
@@ -60,7 +64,7 @@ Only these kinds of file are allowed: JSON, Typst (`.typ`), SVG and PNG images, 
 
 ## The manifest
 
-`module.json` describes the theme. This is the manifest of a general theme made from a copy of Plain:
+`module.json` describes the theme. This is the manifest of a theme made from a copy of Plain:
 
 ```file: module.json
 {
@@ -82,7 +86,7 @@ Only these kinds of file are allowed: JSON, Typst (`.typ`), SVG and PNG images, 
 - `version` is MAJOR.MINOR.PATCH. Raise PATCH for a fix, MINOR when you add something, and MAJOR only when an adventure could look broken after the change. Adventures pin the exact version they use.
 - `format` is 1, and `app` is the lowest Scriptorum version that can load the theme: 1.0.0.
 - `licence` is the SPDX name of your licence, such as `GPL-3.0-or-later`, `CC-BY-4.0` or `MIT`.
-- `requires` names the core element kit for a general theme, or a game system with its version range, such as `{"id": "scriptorum.free-league-vaesen", "version": "1.x"}`, for a theme of that game.
+- `requires` names the core element kit, `{"id": "scriptorum.core", "version": "1.x"}`. A theme never requires a game system: which game systems it is offered for follows from its templates (see above). The optional `made_for` names the game system you made it for, such as `"scriptorum.free-league-vaesen"`.
 
 When you copy Plain, remove its line `"standard": true`. It is how the New adventure dialog knows to offer the bundled Plain theme first.
 
@@ -275,7 +279,7 @@ Use no text, artwork or logos from the publisher. A theme captures a mood with y
 
 ## Worked examples: Legends and Lattes and Call of Cthulhu
 
-Both are general themes, made from the same element templates as the Vaesen theme. Open their folders in your module library beside this guide.
+Both draw every block of the core element kit, made from the same element templates as the Vaesen theme. Open their folders in your module library beside this guide.
 
 Legends and Lattes is cozy fantasy:
 

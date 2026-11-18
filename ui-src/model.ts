@@ -58,6 +58,7 @@ export interface ElementDef {
   body: "none" | "plain" | "rich" | "blocks";
   allow: string[] | null;
   onlyInside: string[] | null;
+  offered?: boolean; // F7.4 (0.7.0, #20): false for the Columns section on a page with more columns
   fields: FieldDef[];
   variants: { id: string; label: string }[];
   defaultVariant: string | null;

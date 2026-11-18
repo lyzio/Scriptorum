@@ -151,16 +151,28 @@ def test_T_MOD_26_change_game_system(session, tmp_path):
 
 
 @pytest.mark.integration
-def test_T_MOD_26_theme_and_codex_types(session, tmp_path):
-    """T-MOD-26: from Vaesen to Plain, the Vaesen theme is not offered, so a
-    theme for Plain must be picked; a general theme stays. Codex entries of
-    a type Plain lacks are kept and get a warning."""
+def test_T_MOD_26_theme_and_codex_types(session, tmp_path, monkeypatch):
+    """T-MOD-26: from Vaesen to Plain the Vaesen theme is offered too, so it
+    stays (F8, issue #23); a theme not offered for the new game system must
+    be swapped for one that is. Codex entries of a type Plain lacks are kept
+    and get a warning."""
     _open(session, tmp_path, "m4-look")
     files = _others(session)
+    # Corrected for 0.7.0 (F8, issue #23): every bundled theme is offered for
+    # both bundled game systems, so the Vaesen theme stays.
     fit = session.game_system_fit(*PLAIN_GS)
-    assert not fit["themeOffered"] and fit["themes"][0]["id"] == "scriptorum.plain"
+    assert fit["themeOffered"]
     assert [p["key"] for p in fit["problems"]] == ["warning.fit.codexType"]
     assert "Creature" in fit["problems"][0]["text"]
+    # A theme locked for the new game system must be swapped (simulated: no
+    # bundled theme is locked for Plain).
+    from scriptorum.core import modules, session as session_module
+    real = modules.theme_offered_for
+    locked = lambda library, theme, game: not (theme.id == "scriptorum.vaesen" and game.id == PLAIN_GS[0]) and real(library, theme, game)  # noqa: E731
+    monkeypatch.setattr(modules, "theme_offered_for", locked)
+    monkeypatch.setattr(session_module, "theme_offered_for", locked)
+    fit = session.game_system_fit(*PLAIN_GS)
+    assert not fit["themeOffered"] and fit["themes"][0]["id"] == "scriptorum.plain"
     with pytest.raises(ModuleError) as refused:
         session.preview_game_system(*PLAIN_GS)
     assert refused.value.key == "error.gameSystem.pickTheme"

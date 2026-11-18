@@ -316,6 +316,7 @@ export class VisualEditor {
       // take any other block (M6 part C2).
       if (def.id === "scene" && chain.length > 0) continue;
       if (def.onlyInside && def.onlyInside.length) continue;
+      if (def.offered === false) continue; // F7.4 (#20): not on this page
       kinds.push(def.id);
     }
     return kinds;

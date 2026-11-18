@@ -4,6 +4,13 @@ What each version of Scriptorum brings, newest first. The section of a version i
 
 ## 0.7.0 — in progress (built in five steps on build/0.7.0, released once)
 
+### Step 2: themes, Columns section, the preview follows (issues #23, #20, #21)
+
+- **Every theme with every game system** (issue #23). A theme is offered for every game system whose blocks it styles, so the Vaesen theme can be used with Plain and the general themes with Vaesen. A theme that lacks a template for a block of the game system is shown greyed out in File ▸ New adventure… and on the settings page, with the reason (for example "no styling for: Rumour"). Changing the game system now keeps the theme when it still fits.
+- **Columns section** (issue #20). On a one-column page, Insert ▸ Layout ▸ Columns section (also in the + menu) sets the blocks inside it in 2 or 3 columns, right where it is written; the text after it is one column again. It is not offered on a two-column page.
+- **The preview follows the editor** (issue #21). When you move to another block in the editor, the preview scrolls to it, about a third from the top, with a short mark beside it. The Follow switch in the preview's zoom bar turns this off, and is remembered. Scrolling the preview yourself pauses following for two seconds. Clicking in the preview still moves the editor to that place.
+- **Fixed on the way:** in the Insert menu, Full-width section, Never split and Table of contents now sit under Layout, as they do in the + menu.
+
 ### Step 1: the internal API (issue #29)
 
 - **Nothing changes for you.** Scriptorum looks and works exactly as before; this step reorganises how the interface talks to the core.

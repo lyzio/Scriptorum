@@ -284,7 +284,7 @@ Changed something? One version number stands for one content, because adventures
 
 Then:
 
-- File ▸ New adventure… offers your game system, with every general theme.
+- File ▸ New adventure… offers your game system, with every theme that has a template for each of its blocks; a theme without one for an element you added is shown greyed out, with the reason.
 - Insert each of your elements and fill in every field. Try a wrong value too: the message should appear on the right line.
 - Write the example above into a scene and look at the preview. Your own elements are drawn in a plain frame until a theme gives them a template.
 - Help ▸ Check installation ▸ Run the theme self-test builds a test adventure with every theme offered for your game system.
@@ -304,4 +304,4 @@ On Windows, open the folder, select everything in it, choose Send to ▸ Compres
 
 Once it is installed, Settings ▸ Modules ▸ Save as .scmod file… writes the same file again whenever you need it.
 
-Whoever receives it installs it with File ▸ Settings… ▸ Modules ▸ Install module…. If you also made a theme for it, share both: the theme names your game system in its `requires`, so it is offered only for it. An adventure never carries its modules: send the `.scav` file together with the `.scmod` files it needs. Opened without them, the adventure lists the modules it needs.
+Whoever receives it installs it with File ▸ Settings… ▸ Modules ▸ Install module…. If you also made a theme for it, share both: name your game system in the theme's `made_for`, so it comes first in that game system's list. An adventure never carries its modules: send the `.scav` file together with the `.scmod` files it needs. Opened without them, the adventure lists the modules it needs.

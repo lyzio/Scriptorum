@@ -138,6 +138,8 @@
   "field.creature.stat-lines": "Stats (one per line, such as Strength 3)",
   "element.full-width": "Full-width section",
   "element.keep-together": "Never split",
+  "element.column-section": "Columns section",
+  "field.column-section.count": "Columns",
   "element.contents": "Table of contents",
   "print.contents": "Contents",
   "print.break.page": "page break",

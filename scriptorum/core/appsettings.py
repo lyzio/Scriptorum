@@ -37,6 +37,7 @@ DEFAULTS = {
     "update_last_check": 0,           # F21: when the weekly check last ran (seconds)
     "update_address": "",             # F22 (M6 part C5): empty means the built-in address
     "app_zoom": 100,                  # F9 (M6-0.6.10, issue #16): the whole window's zoom, in %
+    "preview_follow": True,           # F7.2 (0.7.0, issue #21): the preview follows the editor
 }
 
 # F9 (M6-0.6.10, issue #16): the steps of the window's zoom, in per cent.
@@ -50,6 +51,7 @@ CHOICES = {
     "update_weekly": (True, False),
     "update_asked": (True, False),
     "app_zoom": APP_ZOOM_STEPS,
+    "preview_follow": (True, False),
 }
 RANGES = {"ui_size": (11, 18), "editor_size": (12, 24), "snapshot_minutes": (1, 120), "snapshot_keep": (1, 200),
           "update_last_check": (0, 2 ** 40)}

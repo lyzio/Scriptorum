@@ -657,6 +657,16 @@
     _mark("full-width")
     place(auto, scope: "parent", float: true, clearance: 1.2em, block(width: 100%, _framed(body)))
   }
+  // F7.4 (0.7.0, issue #20): a Columns section, the mirror of the
+  // full-width section: on a one-column page it sets what it holds in 2 or
+  // 3 columns with the theme's gap, where it is written. A column break
+  // inside it moves to its next column; the page goes on in one column.
+  let column-section(count: 2, ..args) = {
+    let body = args.pos().at(0, default: [])
+    let n = if count == none { 2 } else { calc.max(2, calc.min(3, int(count))) }
+    _mark("column-section")
+    block(width: 100%, above: 1.2em, below: 1.2em, columns(n, body))
+  }
   let keep-together(..args) = {
     let body = args.pos().at(0, default: [])
     _mark("keep-together")
@@ -720,6 +730,7 @@
     },
     full-width: full-width,
     keep-together: keep-together,
+    column-section: column-section,
     contents: contents,
     // F3.10: called by the entry file, not written by the author.
     _end-clues: end-clues,

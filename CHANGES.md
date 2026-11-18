@@ -1,41 +1,43 @@
-# Scriptorum 0.7.0 step 1 — Changes
+# Scriptorum 0.7.0 step 2 — Changes
 
-Base: **0.6.10** (`main`, accepted and merged on 18 November 2026). The first of five steps of 0.7.0 on the branch `build/0.7.0` (design document section 10, decided 18 November 2026): **the internal API** (F23, issue #29), alone, with no visible change.
+Base: **0.7.0 step 1** (the internal API, on `build/0.7.0`, confirmed by the project manager on 18 November 2026). The second of five steps of 0.7.0 on the branch `build/0.7.0`: themes for every game system (issue #23), the Columns section (issue #20) and the preview following the editor (issue #21). Outcomes approved on 18 November 2026 and written into the design document (F8, F7.2, F7.4).
 
-- **`scriptorum/api/`**: the operations the interface uses, grouped by area (app, adventure, codex, build, modules), each taking and returning plain JSON-safe data; refusals as plain errors with their key; unexpected errors logged and given plainly; events; API version 1.0 with its stored surface
-- **the bridge** keeps only Qt (dialogs, file pickers, windows, timers, the clipboard, local file addresses, the WebChannel signals) and passes everything else to the API; 1,424 lines became 985, and it imports nothing from `scriptorum/core`
-- **one network gate** (`scriptorum/api/net.py`): the update check and the download go through it; the core's update module no longer opens connections
-- **`docs/API.md`** describes every operation and event; `docs/DEVELOPING.md` points to it
-- found on the way: opening a file that does not exist raised a raw error, so the window said nothing; it now says so plainly
+- **#23**: a theme is offered for every game system whose blocks it styles (template coverage). A theme that misses a template is shown greyed out with the reason. A theme can name the game system it was `made_for`, which only orders the list. The Vaesen theme no longer requires the Vaesen game system.
+- **#20**: a new core layout element, Columns section, with a Columns field of 2 or 3, offered only on a one-column page.
+- **#21**: the preview follows the block the editor is in, with a Follow switch in the zoom bar, remembered; it pauses for 2 seconds after the preview is scrolled by hand.
+- found on the way: the Insert menu now lists Full-width section, Never split and Table of contents under Layout, as the + menu does.
 
-The core, the interface, every file format, the installers and the release process are unchanged. Issues: #29 (step 1 of the internal API).
+The file formats, the API version (1.0), the installers and the release process are unchanged. Issues: Refs #20, #21, #23.
 
 ## Added
 
 | File | Why |
 |---|---|
-| `scriptorum/api/__init__.py` | The API's entry: `Api`, `API_VERSION`, `surface()` (F23) |
-| `scriptorum/api/workspace.py` | `Api`: the tabs, events, network gate and the five areas |
-| `scriptorum/api/app.py` | App settings, palettes, About, start-up checks, spell check, zoom, updates |
-| `scriptorum/api/adventure.py` | Tabs, new, open, save, recovery, snapshots, chapters, settings page, find, images, fonts |
-| `scriptorum/api/codex.py` | Codex entries and types, maps, the chart, the M3 upgrade |
-| `scriptorum/api/build.py` | The preview build and exports |
-| `scriptorum/api/modules.py` | Game systems, the module manager, versions, Change game system |
-| `scriptorum/api/errors.py` | Plain errors (F23.2) |
-| `scriptorum/api/events.py` | The events (F23.3) |
-| `scriptorum/api/net.py` | The one network gate (F23.6) |
-| `scriptorum/api/surface.json` | The stored surface of API 1.0 (T-API-01) |
-| `docs/API.md` | Every operation and event |
-| `tests/test_api.py` | T-API-01 to 06 |
+| `scriptorum/bundled/scriptorum.core/elements/column-section.json` | The Columns section element (F7.4, #20) |
+| `scriptorum/bundled/scriptorum.en/strings/theme.json` | The locked-theme reason and the names of the theme's own pages (#23) |
+| `tests/test_step2.py` | T-LOOK-13, T-BUILD-33, T-UI-53, T-UI-54 |
 
 ## Changed
 
 | File | Why |
 |---|---|
-| `scriptorum/app/bridge.py` | Keeps only Qt; every other call goes to the API; the tests' hooks (`update_opener`, `update_requests`, …) now point into the API |
-| `scriptorum/core/updates.py` | `fetch` and `fetch_pack` moved into the network gate; `check` and `install` read through the reader they are given |
-| `scriptorum/bundled/scriptorum.en/strings/error.json` | `scav.cannotRead`: a file that could not be read |
-| `tests/test_m6c.py` | T-UI-32's network-code check names the gate instead of `core/updates.py` (design changed) |
-| `docs/DEVELOPING.md` | Points to `scriptorum/api/` and `docs/API.md` |
-| `CHANGELOG.md` | The 0.7.0 section, step 1 |
-| `pyproject.toml`, `scriptorum/__init__.py`, `ui-src/package.json` | Version 0.7.0 |
+| `scriptorum/core/modules.py` | `game_system_blocks`, `theme_missing`, `theme_offered_for` by coverage, `theme_made_for` (#23) |
+| `scriptorum/core/session.py` | Game systems list their offered and locked themes; `kind_name`, `themes_locked`; the editor knows whether Columns section is offered; a locked version of the same theme can still be previewed (#20, #23) |
+| `scriptorum/core/modmanager.py` | A theme without a generic frame is refused only if it is offered for no installed game system (#23) |
+| `scriptorum/core/appsettings.py` | `preview_follow`, on by default (#21) |
+| `scriptorum/bundled/scriptorum.vaesen/module.json` | `made_for` the Vaesen game system instead of requiring it (#23) |
+| `scriptorum/bundled/scriptorum.core/labels/en.json` | The names "Columns section" and "Columns" (#20) |
+| `scriptorum/bundled/scriptorum.core/typst/elements.typ` | The `column-section` template (#20) |
+| `scriptorum/bundled/scriptorum.en/strings/settings.json` | The locked theme line; the old "general" hint removed (#23) |
+| `scriptorum/bundled/scriptorum.en/strings/zoom.json` | Follow and its hint (#21) |
+| `scriptorum/bundled/scriptorum.en/strings/guide-theme.json`, `guide-game-system.json` | Regenerated from the guides |
+| `tools/guides/how-to-write-a-theme.md`, `how-to-write-a-game-system.md` | Which game systems a theme is offered for, and `made_for` (#23) |
+| `ui-src/app.ts`, `editor.ts`, `model.ts` | Locked themes greyed out; Columns section only where offered and under Layout; following the editor (#20, #21, #23) |
+| `scriptorum/ui/index.html`, `styles.css`, `dist/app.js` | The Follow switch, the mark, the rebuilt interface |
+| `tests/scenarios/run_use_scenarios.py` | The Vaesen theme now stays with Plain (#23); the preview follows (#21) |
+| `tests/test_ui_smoke.py`, `test_modules.py`, `test_m4.py`, `test_m5.py`, `test_m5e.py`, `test_m6e.py`, `test_ui_m4.py`, `test_ui_m5.py` | Corrected because the design changed: themes offered by coverage, a new always-on element, the Follow switch (see TEST-REPORT.md) |
+| `CHANGELOG.md`, `CHANGES.md`, `TEST-REPORT.md` | Step 2 |
+
+## Deleted
+
+None.

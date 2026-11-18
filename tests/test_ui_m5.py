@@ -120,7 +120,8 @@ def test_T_UI_26_check_installation(ui):
     ui.js("document.getElementById('check-selftest').click(); true")
     ui.wait_until(lambda: ui.js("Number(document.body.dataset.selfTestDone || 0)") >= 1, 120)
     assert ui.js("document.getElementById('check-summary').textContent") == "Theme self-test: every theme builds the test adventure."
-    assert ui.js("document.querySelectorAll('#check-themes li.passed').length") == 7
+    # Corrected for 0.7.0 (F8, issue #23): four themes with two game systems each.
+    assert ui.js("document.querySelectorAll('#check-themes li.passed').length") == 8
     assert ui.window.interceptor.blocked == []
     ui.js("document.getElementById('check-close').click(); true")
 
@@ -147,7 +148,8 @@ def test_T_UI_27_zoom_bar(ui):
     _open(ui, "m5-plain")
     texts = ui.js("[...document.querySelectorAll('#zoom-bar button')].map(b => b.textContent.trim() || b.title)")
     # M5 part B adds Two pages and Own window (F7.2).
-    assert texts == ["Zoom out", "Zoom in", "Fit width", "Whole page", "Two pages", "Own window"]
+    # 0.7.0 (F7.2, issue #21): the Follow switch ends the zoom bar.
+    assert texts == ["Zoom out", "Zoom in", "Fit width", "Whole page", "Two pages", "Own window", "Follow"]
     assert ui.js("document.querySelector('#pages img.page').src").endswith(".svg")
     assert ui.js("window.__scriptorum.zoom.get().zoom") == "fit-width"
     pane = ui.js("document.getElementById('preview-pane').clientWidth")

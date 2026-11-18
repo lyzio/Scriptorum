@@ -45,7 +45,6 @@
   "gameSystemTry": "Try it in the preview",
   "themeLabel": "Theme",
   "themeNote": "Changing the theme changes only the look. The text, codex and maps are never touched.",
-  "themeGeneral": "{name} (for every game system)",
   "secretFill": "Fill of the secret box",
   "fill.grey": "Pale grey",
   "fill.beige": "Pale beige",
@@ -157,5 +156,6 @@
   "modules.confirm.usedByNone": "No adventure on your Recent files list uses it. Other adventures may use it; they will open in protected mode.",
   "version": "Version",
   "gameSystemVersion": "Version of the game system",
-  "themeVersion": "Version of the theme"
+  "themeVersion": "Version of the theme",
+  "themeLocked": "{name} — {reason}"
 }

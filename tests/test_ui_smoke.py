@@ -116,7 +116,9 @@ def test_T_UI_03_new_adventure_dialog(ui):
     themes = ui.js("[...document.querySelectorAll('#new-theme option')].map(o => o.textContent)")
     # M5 (F8, decided 11 Nov 2026): the Plain game system and Plain theme are
     # offered first and preselected (T-MOD-13).
-    assert systems == ["Plain", "Vaesen"] and themes == ["Plain", "Call of Cthulhu", "Legends and Lattes"]
+    # Corrected for 0.7.0 (F8, issue #23): every theme with every game system,
+    # so the Vaesen theme is offered for Plain too.
+    assert systems == ["Plain", "Vaesen"] and themes == ["Plain", "Call of Cthulhu", "Legends and Lattes", "Vaesen"]
     assert ui.js("document.getElementById('new-system').selectedOptions[0].textContent") == "Plain"
     assert ui.js("document.getElementById('new-theme').selectedOptions[0].textContent") == "Plain"
     # The author can still pick any other game system: the tests that follow
