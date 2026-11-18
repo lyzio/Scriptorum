@@ -446,6 +446,7 @@ def use_02(window: MainWindow) -> dict:
     codex_steps(s, window)
     update_steps(s, window)
     game_system_steps(s, window)
+    fix_0610_steps(s, window)
     return s.summary()
 
 
@@ -887,9 +888,9 @@ def update_steps(s: Scenario, window: MainWindow) -> None:
     s.check("an http address is refused with a plain message",
             (s.js("document.getElementById('app-updateAddressError').textContent") or "").startswith("Only a secure https"))
     s.act("Type an https address", """(() => { const i = document.getElementById('app-updateAddress');
-        i.value = 'https://example.org/scriptorium-update.json'; i.dispatchEvent(new Event('change')); return true; })()""", 500)
+        i.value = 'https://example.org/scriptorum-update.json'; i.dispatchEvent(new Event('change')); return true; })()""", 500)
     s.check("the https address is stored",
-            window.bridge.session.app_settings.get("update_address") == "https://example.org/scriptorium-update.json")
+            window.bridge.session.app_settings.get("update_address") == "https://example.org/scriptorum-update.json")
     s.act("Close Settings", "window.__u.click('#settings-close')", 300)
     data = pack_bytes("9.9.9")
     window.bridge.update_opener = lambda url: signed(update_info("9.9.9", data, "https://example.org/pack.zip"))
@@ -948,6 +949,32 @@ def game_system_steps(s: Scenario, window: MainWindow) -> None:
     s.check("it still builds", s.state()["errors"] == [])
     s.act("Undo", "window.__scriptorum.undo()", 2500)
     s.check("one undo brings Vaesen back", window.bridge.session.adventure.game_system.id == "scriptorum.free-league-vaesen")
+
+
+def fix_0610_steps(s: Scenario, window: MainWindow) -> None:
+    """M6 fix build 0.6.10 steps of T-USE-02: the Game Master zooms the whole
+    window and goes back to 100 % from the status bar, opens a block's + menu
+    and reads it in groups, and looks at the logo in Help ▸ About."""
+    settings = window.bridge.session.app_settings
+    s.act("Ctrl and plus, outside the preview", """(() => { document.dispatchEvent(new KeyboardEvent('keydown',
+        {key: '+', ctrlKey: true, bubbles: true, cancelable: true})); return true; })()""", 600)
+    s.check("the window zooms to 110 %", settings.get("app_zoom") == 110)
+    shown = s.js("document.getElementById('st-zoom').classList.contains('hidden') ? '' : document.getElementById('st-zoom').textContent") or ""
+    s.check("the status bar shows Zoom 110 %", shown == "Zoom 110 %")
+    s.shot("app-zoom")
+    s.act("Click the zoom in the status bar", "window.__u.click('#st-zoom')", 600)
+    s.check("back to 100 %, and the status bar no longer shows it", settings.get("app_zoom") == 100
+            and s.js("document.getElementById('st-zoom').classList.contains('hidden')"))
+    s.act("Open the + menu of the first block", """(() => { const b = document.querySelector('#visual section.blk');
+        b.scrollIntoView({block: 'center'}); b.querySelector(':scope > .blk-controls').querySelectorAll('button')[2].click(); return true; })()""", 400)
+    headings = s.js("[...document.querySelectorAll('#menu-popup .menu-column .menu-heading')].map(h => h.textContent)") or []
+    s.check("the + menu shows its groups as columns", headings[:3] == ["Text", "Structure", "Boxes"])
+    s.shot("plus-menu")
+    s.act("Close it", "document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); true")
+    s.act("Help ▸ About Scriptorum", "window.__scriptorum.about.openAbout()", 600)
+    s.check("the About window shows the logo", (s.js("document.querySelector('#about-dialog .about-logo').naturalWidth") or 0) > 0)
+    s.shot("about-logo")
+    s.act("Close About", "window.__u.click('#about-close')")
 
 
 def _scenario_png(width: int = 2400, height: int = 1600) -> bytes:

@@ -1,6 +1,6 @@
 [project]
 name = "scriptorum"
-version = "0.6.9"
+version = "0.6.10"
 description = "A text processor for game masters writing their own adventures, with pixel-perfect PDF output."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -32,4 +32,4 @@ build-backend = "setuptools.build_meta"
 include = ["scriptorum*"]
 
 [tool.setuptools.package-data]
-scriptorum = ["ui/*.html", "ui/*.css", "ui/*.svg", "ui/dist/*.js", "bundled/**/*", "dictionaries/**/*", "examples/**/*", "licences/**/*"]
+scriptorum = ["ui/*.html", "ui/*.css", "ui/*.svg", "ui/*.png", "ui/dist/*.js", "bundled/**/*", "dictionaries/**/*", "examples/**/*", "licences/**/*"]

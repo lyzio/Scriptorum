@@ -16,13 +16,36 @@ import json
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
 from scriptorum import paths
 from scriptorum.core.startup import CHECKS, CheckResult, Startup, line_text, report_text, text_of
 
 TICK, CROSS, WAITING = "✓", "✕", "·"
+LOGO_SIZE = 120  # F9 (M6-0.6.10): the logo above the name and version
+
+
+def logo_pixmap(size: int = LOGO_SIZE, ratio: float = 1.0) -> Optional[QPixmap]:
+    """F9 (M6-0.6.10): the logo as a card with rounded corners, sharp on a
+    high-resolution screen; None when the picture cannot be read."""
+    source = QPixmap(str(paths.UI_DIR / "logo.png"))
+    if source.isNull():
+        return None
+    pixels = max(1, round(size * ratio))
+    scaled = source.scaled(pixels, pixels, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    card = QPixmap(scaled.size())
+    card.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(card)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    path = QPainterPath()
+    radius = 12 * ratio
+    path.addRoundedRect(0, 0, scaled.width(), scaled.height(), radius, radius)
+    painter.setClipPath(path)
+    painter.drawPixmap(0, 0, scaled)
+    painter.end()
+    card.setDevicePixelRatio(ratio)
+    return card
 
 # Claret & Ink (F16), used when the chosen palette cannot be read yet.
 FALLBACK = {
@@ -115,6 +138,16 @@ class StartupWindow(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(26, 22, 26, 20)
         outer.setSpacing(8)
+        # F9 (M6-0.6.10): the logo above the name and version.
+        self.logo = QLabel()
+        self.logo.setObjectName("logo")
+        screen = QGuiApplication.primaryScreen()
+        picture = logo_pixmap(LOGO_SIZE, screen.devicePixelRatio() if screen else 1.0)
+        if picture is not None:
+            self.logo.setPixmap(picture)
+        self.logo.setAccessibleName(t("app.logoAlt"))
+        outer.addWidget(self.logo, 0, Qt.AlignmentFlag.AlignHCenter)
+        outer.addSpacing(4)
         name = QLabel(t("app.name"))
         name.setObjectName("name")
         version_label = QLabel(t("startup.version", version=version))

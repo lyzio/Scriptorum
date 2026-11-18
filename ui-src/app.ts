@@ -14,7 +14,7 @@ import { escapeInline, setChipLabeler, setInlineKinds } from "./inline";
 import { Block, Chapter, Doc, ElementDef, isDoc, OutlineItem } from "./model";
 import { Spelling } from "./spell";
 import {
-  appValues, applyAppearance, applyAppSettings, beforeCloseSettings, groupItems, initShell, modeSwitch, openSettingsWindow, renderStyle, renderToolbar,
+  appValues, applyAppearance, applyAppSettings, beforeCloseSettings, GROUP_ORDER, GROUPS, groupItems, initShell, modeSwitch, openSettingsWindow, renderStyle, renderToolbar,
   settingsSection, shellTest, showSection,
   ask as askChoice,
 } from "./shell";
@@ -583,6 +583,7 @@ interface MenuItem {
   disabled?: boolean;
   children?: MenuItem[];
   heading?: boolean;
+  column?: boolean; // F9 (M6-0.6.10, issue #18): a heading that starts a column
   foot?: boolean; // F9: "New codex entry…" at the foot of a toolbar group
 }
 
@@ -707,6 +708,63 @@ function insertItems(kinds?: string[], onPick?: (kind: string) => void): MenuIte
   return items;
 }
 
+/** F9 (M6-0.6.10, issue #18): the + (insert after) menu of a block, its
+ * elements in groups shown side by side: Text, the toolbar's groups in the
+ * toolbar's order, Layout and Other. Only what is allowed at that place is
+ * listed, and a group with nothing in it is left out. */
+const LAYOUT_KINDS = ["full-width", "keep-together", "contents"];
+
+function groupedInsertItems(kinds: string[], pick: (kind: string, variant?: string) => void): MenuItem[] {
+  const used = new Set<string>();
+  const columns: { label: string; items: MenuItem[] }[] = [];
+  const text: MenuItem[] = [];
+  for (const kind of ["paragraph", "table", "image", "footnote"]) {
+    if (!kinds.includes(kind)) continue;
+    used.add(kind);
+    const def = state.defs.find((d) => d.id === kind);
+    text.push({ label: def ? def.name : kindLabel(kind), action: () => pick(kind), shortcut: def?.shortcut ?? undefined });
+  }
+  columns.push({ label: t("menu.groupText"), items: text });
+  for (const group of GROUPS) {
+    const items: MenuItem[] = [];
+    for (const entry of GROUP_ORDER[group.id] ?? []) {
+      const [kind, variant] = entry.split(":");
+      if (!kinds.includes(kind)) continue;
+      used.add(kind);
+      if (kind === "heading" || kind.startsWith("heading-") || kind === "scene-end") {
+        items.push({ label: kindLabel(kind), action: () => pick(kind) });
+        continue;
+      }
+      const def = state.defs.find((d) => d.id === kind);
+      if (!def) continue;
+      const label = variant ? t(`toolbar.item.information.${variant}`) : def.name;
+      items.push({ label, action: () => pick(kind, variant), shortcut: variant && variant !== "secret" ? undefined : def.shortcut ?? undefined });
+      // F3 (M6 part C4): a clue goes in as Information.
+      if (entry === "information:hint" && pickerType("clue")) items.push({ label: t("menu.insertClue"), action: () => pick("clue") });
+    }
+    columns.push({ label: t(`toolbar.group.${group.id}`), items });
+  }
+  // The layout markers: the full-width section, never split and the table
+  // of contents (F7.4, F7.7), and any other layout element.
+  const layout = state.defs.filter((d) => (d.category === "layout" || LAYOUT_KINDS.includes(d.id)) && kinds.includes(d.id) && !used.has(d.id));
+  layout.forEach((d) => used.add(d.id));
+  columns.push({ label: t("menu.layout"), items: layout.map((d) => ({ label: d.name, action: () => pick(d.id), shortcut: d.shortcut ?? undefined })) });
+  const other: MenuItem[] = [];
+  for (const kind of kinds) {
+    if (used.has(kind)) continue;
+    const def = state.defs.find((d) => d.id === kind);
+    other.push({ label: def ? def.name : kindLabel(kind), action: () => pick(kind) });
+    if (kind === "information" && pickerType("clue")) other.push({ label: t("menu.insertClue"), action: () => pick("clue") });
+  }
+  columns.push({ label: t("menu.groupOther"), items: other });
+  const items: MenuItem[] = [];
+  for (const column of columns) {
+    if (!column.items.length) continue;
+    items.push({ label: column.label, heading: true, column: true }, ...column.items);
+  }
+  return items;
+}
+
 // The live preview can be hidden to give the editor the whole width.
 let previewShown = true;
 
@@ -760,12 +818,21 @@ function buildMenus(): void {
 function showPopup(anchor: HTMLElement | { left: number; top: number }, items: MenuItem[]): void {
   const popup = $("menu-popup");
   popup.textContent = "";
+  // F9 (M6-0.6.10, issue #18): a menu whose headings start columns shows its
+  // groups side by side.
+  popup.classList.toggle("popup-columns", items.some((i) => i.column));
+  let into: HTMLElement = popup;
   for (const item of items) {
     if (item.heading) {
       const h = document.createElement("div");
       h.className = "menu-heading";
       h.textContent = item.label;
-      popup.append(h);
+      if (item.column) {
+        into = document.createElement("div");
+        into.className = "menu-column";
+        popup.append(into);
+      }
+      into.append(h);
       continue;
     }
     const row = document.createElement("button");
@@ -794,7 +861,7 @@ function showPopup(anchor: HTMLElement | { left: number; top: number }, items: M
         item.action!();
       });
     }
-    popup.append(row);
+    into.append(row);
   }
   let left: number;
   let top: number;
@@ -2428,6 +2495,52 @@ async function setFullScreen(on: boolean): Promise<void> {
   buildMenus();
 }
 
+// --- the window's zoom (F9, M6-0.6.10, issue #16) ---------------------------------------
+
+const APP_ZOOM_STEPS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200];
+let appZoom = 100;
+
+function renderAppZoom(): void {
+  const button = $("st-zoom");
+  button.textContent = t("zoom.app", { percent: appZoom });
+  button.classList.toggle("hidden", appZoom === 100);
+}
+
+async function setAppZoom(percent: number): Promise<void> {
+  const reply = await call("setAppZoom", percent);
+  appZoom = Number(reply?.zoom) || 100;
+  renderAppZoom();
+}
+
+function stepAppZoom(direction: 1 | -1): void {
+  const index = APP_ZOOM_STEPS.indexOf(appZoom);
+  const here = index >= 0 ? index : APP_ZOOM_STEPS.indexOf(100);
+  const next = APP_ZOOM_STEPS[Math.max(0, Math.min(APP_ZOOM_STEPS.length - 1, here + direction))];
+  if (next !== appZoom) setAppZoom(next);
+}
+
+let lastAppWheel = 0;
+
+function onAppWheel(event: WheelEvent): void {
+  // The preview zooms itself (F7.2) and marks the event as handled.
+  if (!(event.ctrlKey || event.metaKey) || event.defaultPrevented) return;
+  event.preventDefault();
+  // One step per notch: a touchpad sends many small events in a row.
+  const now = performance.now();
+  if (event.deltaY === 0 || now - lastAppWheel < 120) return;
+  lastAppWheel = now;
+  stepAppZoom(event.deltaY < 0 ? 1 : -1);
+}
+
+function initAppZoom(): void {
+  window.addEventListener("wheel", onAppWheel, { passive: false });
+  $("st-zoom").addEventListener("click", () => setAppZoom(100));
+  call("appZoom").then((reply: any) => {
+    appZoom = Number(reply?.zoom) || 100;
+    renderAppZoom();
+  });
+}
+
 function onKey(event: KeyboardEvent): void {
   // F9 (M6): F11 (Windows, Linux) and Ctrl+⌘+F (Mac) switch full screen.
   if (event.key === "F11" || (event.ctrlKey && event.metaKey && event.key.toLowerCase() === "f")) {
@@ -2451,6 +2564,14 @@ function onKey(event: KeyboardEvent): void {
   }
   const mod = event.ctrlKey || event.metaKey;
   if (!mod) return;
+  // F9 (M6-0.6.10, issue #16): Ctrl + plus, minus and 0 zoom the whole
+  // window while the preview does not have focus (it keeps its own zoom).
+  if (!event.altKey && ["+", "=", "-", "_", "0"].includes(event.key) && !$("preview-pane").contains(document.activeElement)) {
+    event.preventDefault();
+    if (event.key === "0") setAppZoom(100);
+    else stepAppZoom(event.key === "-" || event.key === "_" ? -1 : 1);
+    return;
+  }
   const key = event.key.toLowerCase();
   const has = !!state.info?.hasDocument;
   if (key === "z" && has) {
@@ -2523,7 +2644,7 @@ async function boot(): Promise<void> {
       updateScenePanel(state.line);
       if (state.mode === "hybrid" && block && place) showHybrid({ block, place });
     },
-    openInsertMenu: (anchor, place, kinds) => showPopup(anchor, insertItems(kinds, (kind) => insert(kind, place))),
+    openInsertMenu: (anchor, place, kinds) => showPopup(anchor, groupedInsertItems(kinds, (kind, variant) => insert(kind, place, variant))),
     openContextMenu: (event, place) => openContextMenu(event, place),
     // M6 part C2: why a block may not go somewhere, and who no longer knows something.
     flash: (text) => flashStatus(text),
@@ -2730,6 +2851,7 @@ async function boot(): Promise<void> {
   $("tb-handouts").addEventListener("click", () => setHandoutsOnly(!state.handoutsOnly));
   $("tb-fullscreen").addEventListener("click", () => setFullScreen(!fullScreen));
   initAbout();
+  initAppZoom();
   on("fullScreenChanged", (on: boolean) => {
     fullScreen = !!on;
     renderFullScreen();

@@ -1,0 +1,13 @@
+The Scriptorum logo
+
+The logo (a twenty-sided die over a crossed pen and scroll, with the word
+Scriptorum on a ribbon) was made with an AI image tool for the Scriptorum
+project, and chosen by the project manager on 18 November 2026. It is shown
+in the About window, on the welcome screen, in the start-up window and in the
+README. The files are scriptorum/ui/logo.png (512 pixels, used by the app)
+and docs/logo/scriptorum-logo.png (the original, 1254 pixels).
+
+It is licensed under the Creative Commons Attribution-ShareAlike 4.0
+International licence (CC BY-SA 4.0), with no personal credit. Its full text
+is in the Licences tab (Creative Commons Attribution-ShareAlike 4.0
+International) and at https://creativecommons.org/licenses/by-sa/4.0/legalcode.

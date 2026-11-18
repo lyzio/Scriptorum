@@ -35,6 +35,8 @@ LICENCES = [
     ("BSD-3-Clause", "BSD 3-Clause License"),
     ("OFL-1.1", "SIL Open Font License 1.1"),
     ("Python", "Python Software Foundation License"),
+    # F9 (M6-0.6.10): the logo's licence (section 7).
+    ("CC-BY-SA-4.0", "Creative Commons Attribution-ShareAlike 4.0 International"),
 ]
 
 # Shown in the About tab with the full licence (F9, decided 12 November 2026).
@@ -91,6 +93,9 @@ def programs() -> List[dict]:
          "licence": "MIT", "file": "parts/cytoscape.txt"},
         {"id": "phosphor", "name": "Phosphor Icons (Light)", "version": pv["phosphor"], "what": "phosphor",
          "licence": "MIT", "file": "parts/phosphor.txt"},
+        # F9 (M6-0.6.10, D16): the logo, made with an AI image tool, no personal credit.
+        {"id": "logo", "name": "Scriptorum logo", "version": "", "what": "logo",
+         "licence": "CC-BY-SA-4.0", "file": "parts/logo.txt"},
     ]
 
 

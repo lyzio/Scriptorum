@@ -118,12 +118,15 @@
   <span id="st-problems"></span>
   <span id="st-flash" class="flash"></span>
   <span id="st-export" class="end"></span>
+  <!-- F9 (M6-0.6.10, issue #16): the zoom of the whole window, shown when it is not 100 %. -->
+  <button id="st-zoom" type="button" class="st-zoom hidden" data-i18n-title="zoom.appReset"></button>
 </footer>
 
 <section id="welcome" class="welcome hidden">
   <div class="welcome-card">
-    <svg class="nib" width="44" height="62" viewBox="0 0 100 140" aria-hidden="true"><path d="M50 134 L24 72 C18 58 19 44 27 34 L31 10 Q50 4 69 10 L73 34 C81 44 82 58 76 72 Z" fill="#B08A4A" stroke="#6E5328" stroke-width="3" stroke-linejoin="round"/><circle cx="50" cy="58" r="6" fill="#FFFDF8" stroke="#6E5328" stroke-width="2.5"/><path d="M50 64 V131" stroke="#6E5328" stroke-width="2.5"/></svg>
-    <h1 data-i18n="app.name"></h1>
+    <!-- F9 (M6-0.6.10): the logo, which carries the name; the heading stays for screen readers. -->
+    <img class="logo-card welcome-logo" src="logo.png" width="200" height="200" data-i18n-alt="app.logoAlt">
+    <h1 class="sr-only" data-i18n="app.name"></h1>
     <p class="lead" data-i18n="welcome.lead"></p>
     <div class="welcome-actions">
       <button id="w-new" type="button" class="primary" data-i18n="welcome.new"></button>
@@ -321,7 +324,7 @@
   </div>
   <section id="about-page-about" class="about-page" role="tabpanel">
     <div class="about-head">
-      <span class="about-logo" aria-hidden="true"></span>
+      <img class="logo-card about-logo" src="logo.png" width="96" height="96" data-i18n-alt="app.logoAlt">
       <div>
         <h2 data-i18n="app.name"></h2>
         <p id="about-version" class="settings-note"></p>

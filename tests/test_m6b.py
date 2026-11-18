@@ -268,9 +268,10 @@ def test_T_UI_34_about_window(ui):
     assert ui.js("document.getElementById('about-version').textContent").startswith("Version 0.")
     info = ui.js("window.__scriptorum.about.info()")
     names = {r["name"]: r for r in info["programs"]}
-    # cryptography joined in M6-0.6.7 (F22: signatures on updates, section 7).
+    # cryptography joined in M6-0.6.7 (F22: signatures on updates, section 7);
+    # the logo in M6-0.6.10 (F9, D16).
     assert set(names) == {"Python", "Qt and PySide6", "Qt WebEngine (Chromium)", "Typst", "spylls", "cryptography",
-                          "Cytoscape.js", "Phosphor Icons (Light)"}
+                          "Cytoscape.js", "Phosphor Icons (Light)", "Scriptorum logo"}
     assert names["Typst"]["version"] == "0.15.0" and names["Typst"]["licence"] == "Apache-2.0"
     assert names["spylls"]["licence"] == "MPL-2.0"  # its own licence file (the register said MIT)
     assert names["Qt and PySide6"]["version"].startswith("6.8")
@@ -292,7 +293,8 @@ def test_T_UI_34_about_window(ui):
     assert "too long to show line by line" in ui.js("document.getElementById('about-text').textContent")
     # Every licence's full text.
     ids = ui.js("[...document.querySelectorAll('#about-licences button')].map(b => b.dataset.licence)")
-    assert ids == ["GPL-3.0", "LGPL-3.0", "Apache-2.0", "MPL-2.0", "MIT", "MIT-0", "BSD-3-Clause", "OFL-1.1", "Python"]
+    assert ids == ["GPL-3.0", "LGPL-3.0", "Apache-2.0", "MPL-2.0", "MIT", "MIT-0", "BSD-3-Clause", "OFL-1.1", "Python",
+                   "CC-BY-SA-4.0"]  # the logo's licence from M6-0.6.10
     for ident in ids:
         ui.run(f"document.querySelector('#about-licences button[data-licence=\"{ident}\"]').click()")
         assert len(ui.js("document.getElementById('about-text').textContent")) > 800

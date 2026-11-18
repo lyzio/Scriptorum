@@ -1,0 +1,72 @@
+# The dependency audit (design document section 10, M6-0.6.10, decided
+# 18 November 2026).
+#
+# Checks the pinned Python packages of pyproject.toml with pip-audit and the
+# interface's npm packages with npm audit against the public lists of known
+# security problems, once a week and on every pull request. A finding fails
+# the run; the project manager then decides whether a pinned version must
+# change (D4). The job may only read the repository.
+name: Dependency audit
+
+on:
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python packages (pip-audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: The repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Python 3.13
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: The pinned versions from pyproject.toml
+        run: >-
+          python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']))"
+          > pinned-requirements.txt
+
+      # Known and checked (18 November 2026): three advisories for
+      # cryptography 48.0.1, which stays pinned because it is the newest
+      # version with builds for Intel Macs on macOS 12 (D2, section 7). None
+      # touches what Scriptorum uses (Ed25519 signatures, F22):
+      #   GHSA-m2h6-j472-rp4c  X.509 name constraints with wildcards
+      #   GHSA-jwv3-5hgf-82ww  X.509 chain building with duplicate certificates
+      #   GHSA-g6cj-pr64-35w5  PKCS#7 decryption
+      # Any other finding fails the run.
+      - name: pip-audit
+        run: |
+          python -m pip install "pip-audit==2.10.1"
+          python -m pip_audit --requirement pinned-requirements.txt --strict --progress-spinner off \
+            --ignore-vuln GHSA-m2h6-j472-rp4c --ignore-vuln GHSA-jwv3-5hgf-82ww --ignore-vuln GHSA-g6cj-pr64-35w5
+
+  npm:
+    name: Interface packages (npm audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: The repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: npm audit
+        working-directory: ui-src
+        run: npm audit --audit-level=moderate

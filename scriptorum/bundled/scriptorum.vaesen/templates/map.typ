@@ -87,7 +87,7 @@
     }
     // F5 (M6 part C3): the key lists each pin's number with its entry's
     // name (or its own text) and its note. It sits beside the map when the
-    // map is upright and there is room, otherwise under it.
+    // map is upright and there is room, otherwise under it (see below).
     let pins = f.layers.map(l => l.items.filter(i => i.type == "pin" and i.at("number", default: none) != none)).flatten()
       .sorted(key: i => i.number)
     let key-lines = pins.map(i => {
@@ -96,9 +96,13 @@
       let note = i.at("note", default: "")
       (i.number, name, note)
     }).filter(k => k.at(1) != "" or k.at(2) != "")
-    let key = if key-lines.len() == 0 { none } else {
+    // F5 (M6-0.6.10, issue #22): the key's text is left-aligned, never
+    // justified, so a narrow key has no wide gaps.
+    let key-grid(lines) = {
+      set par(justify: false)
+      set align(left)
       grid(columns: (auto, 1fr), column-gutter: 4pt, row-gutter: 3pt,
-        ..key-lines.map(((n, name, note)) => (
+        ..lines.map(((n, name, note)) => (
           box(circle(radius: 4.4pt, fill: accent, stroke: none,
             align(center + horizon, text(size: 5.8pt, weight: "bold", fill: white, str(n))))),
           text(size: 7.5pt, fill: accent, {
@@ -107,6 +111,7 @@
           }),
         )).flatten())
     }
+    let key = if key-lines.len() == 0 { none } else { key-grid(key-lines) }
     let draw-map(w) = {
       let h = w * f.aspect
       box(width: w, height: h, stroke: 0.4pt + quiet, {
@@ -123,12 +128,25 @@
       })
     }
     layout(size => {
-      let beside = key != none and f.aspect >= 0.9
+      // F5 (M6-0.6.10, issue #22): beside the map only when the map is
+      // upright and the space is wide enough (a landscape page or a
+      // full-width section); in a column of a portrait page it goes under.
+      // Under the map, two columns only where the space is that wide too.
+      let wide = size.width >= 12cm
+      let beside = key != none and f.aspect >= 0.9 and wide
       if beside {
         grid(columns: (68%, 1fr), column-gutter: 4%, draw-map(size.width * 0.68), align(top, key))
       } else {
         draw-map(size.width)
-        if key != none { block(above: 2.5mm, columns(if key-lines.len() > 4 { 2 } else { 1 }, gutter: 5mm, key)) }
+        if key != none {
+          // Two columns side by side, the first half on the left, only
+          // where the space is wide enough.
+          if key-lines.len() > 4 and wide {
+            let half = calc.ceil(key-lines.len() / 2)
+            block(above: 2.5mm, grid(columns: (1fr, 1fr), column-gutter: 5mm,
+              key-grid(key-lines.slice(0, half)), key-grid(key-lines.slice(half))))
+          } else { block(above: 2.5mm, key) }
+        }
       }
     })
     if player {

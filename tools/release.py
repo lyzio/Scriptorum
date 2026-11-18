@@ -191,6 +191,25 @@ def changelog_section(version: str, changelog: Path = ROOT / "CHANGELOG.md") -> 
     return "\n".join(lines[1:]).strip()
 
 
+LINUX_NOTES = ROOT / "packaging" / "user-docs" / "INSTALL-Linux.txt"
+
+
+def release_description(version: str, changelog: Path = ROOT / "CHANGELOG.md", linux_notes: Path = LINUX_NOTES) -> str:
+    """F10 (M6-0.6.10, issue #25): the release's description is the version's
+    section of CHANGELOG.md followed by the Linux install notes, since the
+    release carries no separate INSTALL files (the macOS and Windows notes
+    are inside their installers)."""
+    section = changelog_section(version, changelog)
+    try:
+        notes = linux_notes.read_text("utf-8").replace("<version>", version).strip()
+    except OSError:
+        notes = ""
+    if not notes:
+        return section
+    block = f"## Installing on Linux\n\n```text\n{notes}\n```"
+    return f"{section}\n\n{block}" if section else block
+
+
 def publish_commands(version: str, files: list, note: str, exists: bool, notes_file=None) -> list:
     """The gh commands that publish the files: a new GitHub release on main,
     described by the version's section of CHANGELOG.md (or the note), or the
@@ -319,7 +338,7 @@ def main(argv=None) -> int:
         return 1
     print(f"Made {made['pack'].name} ({made['files']} files) and {made['update'].name} in {made['pack'].parent}.")
     files = [made["pack"], made["update"]]
-    description = changelog_section(args.version)
+    description = release_description(args.version)
     notes_file = None
     if description:
         notes_file = made["pack"].parent / f"release-notes-{args.version}.md"

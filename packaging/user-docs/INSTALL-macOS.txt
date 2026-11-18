@@ -42,4 +42,5 @@ Remove
 Licence
   Scriptorum is free software under the GNU GPL, version 3 or later. The
   licences of every part inside are in Help > About Scriptorum. The source
-  code is in Scriptorum-<version>-source.zip, published beside the .dmg.
+  code is at https://github.com/lyzio/Scriptorum, with an archive of it
+  on every release.

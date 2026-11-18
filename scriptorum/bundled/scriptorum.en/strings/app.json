@@ -4,5 +4,6 @@
   "windowTitleDirty": "{title} (unsaved) — Scriptorum",
   "untitled": "Untitled adventure",
   "windowTitleReadOnly": "{title} (read-only) — Scriptorum",
-  "previewWindowTitle": "{title} — Preview — Scriptorum"
+  "previewWindowTitle": "{title} — Preview — Scriptorum",
+  "logoAlt": "Scriptorum logo"
 }

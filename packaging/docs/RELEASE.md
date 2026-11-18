@@ -24,14 +24,15 @@ The macOS Intel .dmg (`…-macos-x86_64.dmg`) is tested the same way on an Intel
 
 ## Publishing
 
-Publish these together, on the same page, for every version:
+Each release on GitHub carries seven files of its own (F10, decided 18 November 2026, issue #25):
 
-- the installers: `…-linux-x86_64.AppImage`, `…-macos-arm64.dmg` (and `…-macos-x86_64.dmg`), `…-windows-x64-setup.exe`
-- `Scriptorum-<version>-source.zip`
-- the `SHA256SUMS-…txt` files
-- the install notes (`INSTALL-Linux.txt`, `INSTALL-macOS.txt`, `INSTALL-Windows.txt`), or their text on the download page
+- the installers: `…-linux-x86_64.AppImage`, `…-macos-arm64.dmg`, `…-macos-x86_64.dmg`, `…-windows-x64-setup.exe`
+- `SHA256SUMS.txt`, one line per installer, written and kept complete by the installers job
+- `scriptorum-<version>-update.zip` and `scriptorum-update.json`, from the release job (F21, F22)
 
-**Why the source archive.** Scriptorum is under the GPL 3, and so it is passed on with its "Corresponding Source": the source code and the scripts used to build the installers. Offering the source archive from the same place as the installers meets that. Each build writes it (the build folder as packaged plus this kit under `packaging/`); the archives from the three platforms hold the same files, so one is enough. Qt and Qt WebEngine are under the LGPL 3: their libraries stay separate files inside every package, so a user can replace them, and their licence texts and notices are in Help › About (F9).
+The install notes are not separate files: they are inside the installers (Read me first in the .dmg, the notes page of the Windows setup), and the release job puts the Linux notes in the release description under the version's section of CHANGELOG.md.
+
+**The source (GPL).** Scriptorum is under the GPL 3, and so it is passed on with its "Corresponding Source": the source code and the scripts used to build the installers. The kit is in the repository under `packaging/`, so GitHub's own source archives of the release's tag (shown on every release page) hold both; no separate source archive is made. Qt and Qt WebEngine are under the LGPL 3: their libraries stay separate files inside every package, so a user can replace them, and their licence texts and notices are in Help › About (F9).
 
 Parts of the packaging that end up inside the downloads, for the licence register (design document section 7): the PyInstaller bootloader (GPL 2.0 or later with an exception that allows any licence for the packaged program), the AppImage runtime (MIT, its licence is in `linux/runtime/`), and the Inno Setup installer and uninstaller (Inno Setup licence, free for any use). None of them limits Scriptorum's own licence.
 

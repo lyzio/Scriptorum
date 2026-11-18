@@ -25,7 +25,7 @@ Each platform is built on that platform. The first build downloads about 600 MB 
    - Linux: `./linux/build-linux.sh ~/Downloads/M6-0.6.5`
    - macOS: `./macos/build-macos.sh ~/Downloads/M6-0.6.5`
    - Windows: `powershell -ExecutionPolicy Bypass -File windows\build-windows.ps1 $env:USERPROFILE\Downloads\M6-0.6.5` (in PowerShell)
-3. The results are in `dist/`: the installer, `Scriptorum-<version>-source.zip`, a `SHA256SUMS-…txt` and the user's install notes.
+3. The result is in `dist/`: the installer only (from kit 1.0.4). Its SHA-256 is printed at the end; on GitHub the installers job writes one `SHA256SUMS.txt` for all installers of a release. The install notes are inside the installers, and the Linux notes are in each release's description.
 
 What each computer needs, step by step: [docs/BUILD-LINUX.md](docs/BUILD-LINUX.md), [docs/BUILD-MACOS.md](docs/BUILD-MACOS.md), [docs/BUILD-WINDOWS.md](docs/BUILD-WINDOWS.md). Before publishing: [docs/RELEASE.md](docs/RELEASE.md).
 
@@ -72,4 +72,4 @@ docs/                    how to build on each platform, and the release checklis
 work/, dist/             made by builds (safe to delete)
 ```
 
-Kit version 1.0.3, 14 November 2026, for M6-0.6.9. 1.0.3: the macOS app is signed part by part from the inside out instead of in one pass with --deep, which macOS refused for Qt's web-engine framework; before signing, a stray folder in a framework's Versions folder (Qt's web-engine framework had Versions/Resources beside Versions/A) is moved into the real version folder. 1.0.2: the kit lives in the repository and builds on GitHub; the pinned versions come from the app's pyproject.toml; cryptography (F22) is carried into the app. 1.0.1: the library check works when ldconfig is not on the PATH (Debian).
+Kit version 1.0.4, 18 November 2026, for M6-0.6.10. 1.0.4: only the installer is written (issue #25); the install notes stay inside the installers, the installers job writes one SHA256SUMS.txt for a release, and no separate source archive is made, since GitHub's source archives of the tag hold the app and this kit. 1.0.3: the macOS app is signed part by part from the inside out instead of in one pass with --deep, which macOS refused for Qt's web-engine framework; before signing, a stray folder in a framework's Versions folder (Qt's web-engine framework had Versions/Resources beside Versions/A) is moved into the real version folder. 1.0.2: the kit lives in the repository and builds on GitHub; the pinned versions come from the app's pyproject.toml; cryptography (F22) is carried into the app. 1.0.1: the library check works when ldconfig is not on the PATH (Debian).
