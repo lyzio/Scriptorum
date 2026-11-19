@@ -30,6 +30,9 @@ nav = [
   { "API reference" = "api.md" },
   { "Changelog" = "changelog.md" },
   { "Status" = "status.md" },
+  # F24 (0.7.6): the only entry that leaves the site and is not a page.
+  # GitHub forwards this address to the newest release, so it never changes.
+  { "Latest release" = "https://github.com/lyzio/Scriptorum/releases/latest" },
 ]
 
 [project.theme]

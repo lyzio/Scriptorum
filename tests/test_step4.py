@@ -327,4 +327,42 @@ def test_T_DOC_05_site_builds(tmp_path):
     assert "prefers-color-scheme: dark" in home
     assert "Broken thing" in (site / "status" / "index.html").read_text("utf-8")
     assert not list(site.rglob("*design*")) and not list(site.rglob("*test-plan*"))
+    # T-DOC-07 (0.7.6): the sidebar's last entry leaves the site for the newest release.
+    assert f'href="{LATEST_RELEASE}"' in home
+    assert not (site / "latest-release").exists() and not (site / "releases").exists()
     shutil.rmtree(out)
+
+
+# --- T-DOC-07 the Latest release link -----------------------------------------------------------
+
+LATEST_RELEASE = "https://github.com/lyzio/Scriptorum/releases/latest"
+
+
+@pytest.mark.unit
+def test_T_DOC_07_latest_release_link(tmp_path):
+    """T-DOC-07: the sidebar ends with a link named Latest release, after
+    Status, to the repository's releases/latest address; it is the only entry
+    that leaves the site, and no page is made for it (F24, 0.7.6)."""
+    import tomllib
+    tool = _site_tool()
+    out = tool.build(tmp_path / "site")
+    nav = tomllib.loads((out / "zensical.toml").read_text("utf-8"))["project"]["nav"]
+
+    def entries(items):
+        for item in items:
+            ((name, target),) = item.items()
+            if isinstance(target, list):
+                yield from entries(target)
+            else:
+                yield name, target
+    flat = list(entries(nav))
+    assert flat[-2:] == [("Status", "status.md"), ("Latest release", LATEST_RELEASE)]
+    assert list(nav[-1].items()) == [("Latest release", LATEST_RELEASE)]   # at the top level, last
+    leaving = [(name, target) for name, target in flat if not target.endswith(".md")]
+    assert leaving == [("Latest release", LATEST_RELEASE)]
+    # No page is made for it: the pages written are exactly the .md entries.
+    written = sorted(p.relative_to(out / "docs").as_posix() for p in (out / "docs").rglob("*.md"))
+    assert written == sorted(target for _, target in flat if target.endswith(".md"))
+    # The in-app Help is unchanged: no guide text names the address.
+    for area in tool.GUIDES:
+        assert "releases/latest" not in (STRINGS / f"{area}.json").read_text("utf-8")

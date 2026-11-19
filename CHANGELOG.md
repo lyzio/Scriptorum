@@ -2,7 +2,11 @@
 
 What each version of Scriptorum brings, newest first. The section of a version is also the description of its [GitHub release](https://github.com/lyzio/Scriptorum/releases).
 
-## 0.7.5 — in progress (built in six steps on build/0.7.0, released once; each step has its own number)
+## 0.7.6 — in progress (built in steps on build/0.7.0, released once; each step has its own number)
+
+### 0.7.6: a Latest release link on the website
+
+- **Latest release** is the last entry of the documentation website's sidebar, after Status. It opens the newest release on GitHub, so it always points to the current download without the site being rebuilt. The in-app Help is unchanged.
 
 ### 0.7.5, step 6: suggestions, pictures, the Extensions tab and How to write an extension (issue #27)
 
