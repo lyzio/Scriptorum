@@ -1,0 +1,63 @@
+{
+  "papers": [
+    {
+      "id": "printout",
+      "label": "paper.printout",
+      "outline": "#4A4038",
+      "inner": "#9A8F84",
+      "edge_mm": 0.15,
+      "corner": "none",
+      "folds": [
+        1,
+        2
+      ],
+      "marks": {
+        "colour": "#9A8F84",
+        "opacity": 0.1,
+        "spots": [
+          0,
+          1
+        ],
+        "stains": [
+          0,
+          1
+        ],
+        "tears": [
+          0,
+          0
+        ]
+      },
+      "ink": "#222222"
+    },
+    {
+      "id": "writ",
+      "label": "paper.writ",
+      "outline": "#1E1B18",
+      "inner": "#7B5E34",
+      "edge_mm": 0.5,
+      "corner": "none",
+      "folds": [
+        1,
+        2
+      ],
+      "marks": {
+        "colour": "#7A1F1F",
+        "opacity": 0.12,
+        "spots": [
+          0,
+          1
+        ],
+        "stains": [
+          0,
+          0
+        ],
+        "tears": [
+          0,
+          0
+        ]
+      },
+      "ink": "#161412"
+    }
+  ],
+  "rules": "F6.5: the paper is never filled with a colour; outline, inner line, folds, marks and ink may be coloured; stains stay pale (opacity at most 0.2)."
+}

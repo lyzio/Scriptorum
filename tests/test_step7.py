@@ -18,7 +18,9 @@ from tests.conftest import pack_sample
 from tests.test_m6c2 import BUNDLED, _lines
 from tests.test_step3 import _open, _text, ui  # noqa: F401  (the window fixture)
 
-THEMES = ("scriptorum.vaesen", "scriptorum.plain", "scriptorum.legends-and-lattes", "scriptorum.call-of-cthulhu")
+# 0.7.8: every bundled theme, the four general themes of F8 included.
+THEMES = ("scriptorum.vaesen", "scriptorum.plain", "scriptorum.legends-and-lattes", "scriptorum.call-of-cthulhu",
+          "scriptorum.whfrp", "scriptorum.the-one-ring", "scriptorum.wh40krp", "scriptorum.rogue-trader")
 
 
 def _png(w: int, h: int, rgb=(200, 120, 120)) -> bytes:

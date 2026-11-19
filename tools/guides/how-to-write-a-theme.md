@@ -27,7 +27,7 @@ A theme is offered for a game system when it has a template for every block that
 
 The blocks are every element the game system turns on that is drawn by a template, plus three pages the core element kit always prints. For the core element kit that is `scene`, `read-aloud`, `information`, `person`, `creature`, `countdown`, `countdown-step`, `dice`, `check`, `handout`, `box`, `quote`, `pacing`, `map`, `relationship-chart` and `contents`, and the pages `codex-card`, `end-clues` and `end-index`. A game system that adds an element of its own needs a template for it too. The layout markers (page break, column break, full-width section, never split, Columns section) and the footnote need none.
 
-Draw every block of the core element kit and your theme is offered for both bundled game systems, Plain and Vaesen, and for every game system that uses only the core element kit. All four bundled themes do this. A template reads the fields it is given and never depends on a field only one game system has, so it works for every game system it is offered for.
+Draw every block of the core element kit and your theme is offered for both bundled game systems, Plain and Vaesen, and for every game system that uses only the core element kit. All eight bundled themes do this. A template reads the fields it is given and never depends on a field only one game system has, so it works for every game system it is offered for.
 
 If you made the theme for one game, you may name that game system in `made_for` in the manifest. It only puts your theme first in that game system's list; it is never shown and never limits where the theme is offered.
 
@@ -204,6 +204,29 @@ A theme sets its spacing once, at the top of `_style.typ`, and every template us
 
 Sub-headings inside a scene (Sub-heading 1, 2 and 3, which are heading levels 3, 4 and 5) are drawn by `sub-heading-style(level, body)` in `_style.typ`, with the space above and below each in `sub-heading-space`. Keep them smaller than a scene's title. `_page.typ` draws each as a real heading in a block with `sticky: true`, so it is never left alone at the foot of a page or column; keep it a real heading, so it stays a bookmark and a heading for screen readers.
 
+## Bands, chapter tabs and stat blocks
+
+Two more things in `_style.typ` change the look of every page and every creature. Leave them out and your theme keeps the plain defaults, as Plain and Vaesen do.
+
+- `page-background` is drawn behind every page, under the text. Use it for bands across the top and foot of the page, or a tab on the outer edge. It is decoration only, so screen readers skip it. Keep it inside the page margins you set in `page.json`, so it never runs under the text.
+- `stat-row(stats)` draws a creature's stats. It receives the list of stats, each with `label` and `value`; the value is `none` when the author left it empty. The default prints them in one row between two rules.
+
+Define them after everything else in `_style.typ`, so yours replace the defaults:
+
+```
+#let page-background = {
+  place(top + left, dy: 9mm, image("../ornaments/band.svg", width: 100%))
+}
+
+#let stat-row(stats) = grid(
+  columns: stats.len() * (1fr,), stroke: 0.6pt + accent, inset: 3pt, align: center,
+  ..stats.map(s => text(weight: "bold", s.label)),
+  ..stats.map(s => if s.value == none { [–] } else { str(s.value) }),
+)
+```
+
+A background that differs between left and right pages reads the page number inside `context`, as WHFRP does with its chapter tab: `calc.odd(here().page())` is true on a right-hand page.
+
 ## Fonts
 
 Put every font file in `fonts/`, with its licence file beside it, for example `Lora-Regular.ttf` and `Lora-OFL.txt`. Scriptorum's font guard accepts only fonts that may be shared, under the SIL Open Font Licence or the Apache Licence, and it checks the licence written inside the font file itself. A font under any other licence is refused, so a theme can be passed on without passing on a commercial font by accident.
@@ -294,6 +317,13 @@ Call of Cthulhu is 1920s cosmic horror:
 - `ornaments/` holds an occult sigil, corner brackets for the frames and small green diamond bullets.
 - `handouts.json` has a telegram and a torn notebook page; the Typewriter hand suits it.
 - Special Elite is under the Apache Licence and the other fonts under the SIL OFL, each with its licence file in `fonts/`.
+
+Four more bundled themes show the two style hooks from Bands, chapter tabs and stat blocks:
+
+- WHFRP draws a running band of scrollwork across the top and foot of every page and a plum chapter tab on the outer edge with `page-background`, and its creature stats in a framed table with `stat-row`. Its frames are grey panels with torn edges, drawn as polygons in `_style.typ`.
+- The One Ring draws a band of red diamonds at the top and foot of every page, and its creature stats in red diamonds.
+- WH40KRP draws a black band across the top of every page; its secret box prints the word Clearance from `labels/en.json` as a stamp.
+- Rogue Trader has no page background; its stats are a banded table between brass rules.
 
 What they share tells you where to work: the element templates are the same, and the look lives in `_style.typ`, the fonts, the ornaments, the papers and the page setup.
 

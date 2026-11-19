@@ -2,7 +2,12 @@
 
 What each version of Scriptorum brings, newest first. The section of a version is also the description of its [GitHub release](https://github.com/lyzio/Scriptorum/releases).
 
-## 0.7.7 — in progress (built in steps on build/0.7.0, released once; each step has its own number)
+## 0.7.8 — in progress (built in steps on build/0.7.0, released once; each step has its own number)
+
+### 0.7.8: four new themes
+
+- **Four more themes for any game system**: WHFRP (grim fantasy, grey torn panels, a running band of scrollwork and a plum chapter tab), The One Ring (brick red, Uncial headings, bands of red diamonds and stats in diamonds), WH40KRP (grimdark gothic, a black band, a skull over laurels and a dossier with a Clearance stamp) and Rogue Trader (navy and brass, a compass rose, star bullets and a sealed charter). Each has two handout papers of its own. Choose one on the adventure settings page; they work with Vaesen, Plain and any other game system. They are unofficial, fan-made looks with open-licence fonts and the project's own drawings.
+- **Bands and stat blocks for theme authors.** A theme can now draw bands or a chapter tab behind every page, and its own look for a creature's stats. How to write a theme describes both. The four earlier themes print exactly as before.
 
 ### 0.7.7: full-width sections, pasted knowledge, and boxes inside a Box (issues #30, #33, #31)
 

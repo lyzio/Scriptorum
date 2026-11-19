@@ -1,0 +1,19 @@
+{
+  "id": "scriptorum.the-one-ring",
+  "kind": "theme",
+  "name": "The One Ring",
+  "version": "1.0.0",
+  "format": 1,
+  "app": "1.0.0",
+  "licence": "GPL-3.0-or-later",
+  "authors": [
+    "Scriptorum project"
+  ],
+  "description": "A general theme for any game system: warm brown ink with brick red, Uncial Antiqua headings, EB Garamond text and Josefin Sans labels, bands of red diamonds, leafy vine corners and stats in red diamonds. An unofficial, fan-made look, not affiliated with or endorsed by the owners of the work or game it is named after. The One Ring is a game by Free League Publishing.",
+  "requires": [
+    {
+      "id": "scriptorum.core",
+      "version": "1.x"
+    }
+  ]
+}

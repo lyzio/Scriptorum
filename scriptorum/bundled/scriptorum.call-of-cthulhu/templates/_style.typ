@@ -486,3 +486,21 @@
 #let box-pacing(body) = box-part(none, fill: pacing-tint,
   grid(columns: (14pt, 1fr), column-gutter: 8pt, align: (center + horizon, left),
     ornament("hourglass.svg", width: 11pt), frame-par(text(size: 0.95em, body))))
+
+
+// F8 (0.7.8): two style hooks a theme may redefine after this point.
+// page-background is drawn behind every page (none draws nothing);
+// stat-row draws a creature's stats: here in one row between two rules
+// ("MIGHT 4" with the label in bold capitals).
+#let page-background = none
+#let stat-row(stats) = block(
+  width: 100%,
+  stroke: (top: 0.7pt + accent, bottom: 0.7pt + accent),
+  inset: (y: 5pt),
+  above: gap(spacing.small),
+  align(center, stats.map(s => box[
+    #caps-label(s.label, size: 7pt)
+    #h(0.2em)
+    #text(size: 10.5pt, weight: "bold", fill: accent, if s.value == none { [–] } else { str(s.value) })
+  ]).join(h(0.9em))),
+)

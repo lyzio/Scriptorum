@@ -6,7 +6,7 @@ Note that this is a purely AI-written software, by human design and ideas. Since
 Scriptorum is a desktop text processor for game masters who write their own adventures. You write in formatted text, much like a word processor, with game elements such as scenes, read-aloud texts, people, clues, creatures, maps and handouts. Scriptorum turns it into pixel-perfect PDFs for printing: the adventure itself and the player handouts, built from the same text so they never drift apart.
 
 - **Write once, use everywhere.** People, places, clues and creatures live in a codex and appear wherever they are used; renaming one updates every printed name.
-- **Looks come from themes.** An adventure can change its look or page size without any change to its text. Version 1 brings the Vaesen game system and theme, a Plain game system and theme for any game, and two more themes.
+- **Looks come from themes.** An adventure can change its look or page size without any change to its text. Version 1 brings the Vaesen game system and theme, a Plain game system and theme for any game, and six more themes: Legends and Lattes, Call of Cthulhu, WHFRP, The One Ring, WH40KRP and Rogue Trader.
 - **Print-ready.** A live preview that matches the print, print-shop PDFs with bleed and crop marks, booklets, and accessible PDFs (PDF/UA).
 - **Safe with your work.** Crash-safe saving, recovery copies, snapshots and undo. Adventures are single `.scav` files you can e-mail, back up or keep in Git.
 - **Private.** No account, no tracking. Scriptorum is offline by default: with Block all connections outside the app on, it sends nothing to the internet. Turn it off in Settings to look for and download updates when you ask; every update is signed and checked before it is used.

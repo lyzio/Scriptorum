@@ -44,6 +44,8 @@ def test_T_MOD_01_bundled_manifests_valid(library):
         "scriptorum.core", "scriptorum.free-league-vaesen", "scriptorum.vaesen", "scriptorum.en",
         "scriptorum.legends-and-lattes", "scriptorum.call-of-cthulhu", "scriptorum.claret-and-ink",
         "scriptorum.plain-system", "scriptorum.plain",
+        # 0.7.8: four more general themes (F8, decided 19 Nov 2026).
+        "scriptorum.whfrp", "scriptorum.the-one-ring", "scriptorum.wh40krp", "scriptorum.rogue-trader",
     }
     for folder in folders:
         manifest = validate_folder(folder)

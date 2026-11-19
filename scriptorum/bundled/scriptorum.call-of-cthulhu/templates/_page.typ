@@ -2,7 +2,7 @@
 // as `cfg`: the theme's page.json, overridden by the adventure settings page
 // (F7.3). The look comes from _style.typ (F8).
 
-#import "_style.typ": ink, accent, quiet, fonts, sizes, table-style, act-heading, page-number, spacing, sub-heading-style, sub-heading-space
+#import "_style.typ": ink, accent, quiet, fonts, sizes, table-style, act-heading, page-number, page-background, spacing, sub-heading-style, sub-heading-space
 
 #let setup(cfg, labels, doc) = {
   // F7.3 (M5): margins are the same on both sides (x), or inside and
@@ -22,6 +22,9 @@
     columns: cfg.columns,
     margin: margin,
     numbering: if cfg.page_numbers { "1" } else { none },
+    // F8 (0.7.8): a theme may draw bands or a chapter tab behind every
+    // page; it is decoration, so screen readers skip it (F17.4).
+    background: if page-background != none { pdf.artifact(page-background) } else { none },
     header: if header-text != "" {
       align(center, text(font: fonts.head, size: 7.5pt, fill: quiet, tracking: 0.08em, header-text))
     } else { none },

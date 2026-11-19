@@ -1,0 +1,19 @@
+{
+  "id": "scriptorum.rogue-trader",
+  "kind": "theme",
+  "name": "Rogue Trader",
+  "version": "1.0.0",
+  "format": 1,
+  "app": "1.0.0",
+  "licence": "GPL-3.0-or-later",
+  "authors": [
+    "Scriptorum project"
+  ],
+  "description": "A general theme for any game system: baroque explorers and merchant princes in deep navy ink with brass brown and a teal accent, Cinzel Decorative and Cinzel headings, Cormorant Garamond text, a compass rose, star bullets and a sealed charter. An unofficial, fan-made look, not affiliated with or endorsed by the owners of the work or game it is named after.",
+  "requires": [
+    {
+      "id": "scriptorum.core",
+      "version": "1.x"
+    }
+  ]
+}

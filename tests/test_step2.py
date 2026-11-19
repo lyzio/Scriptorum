@@ -24,7 +24,9 @@ from scriptorum.core.session import Session
 from tests.conftest import pack_sample
 from tests.test_m6c2 import BUNDLED, DRAG_HELPERS, FIND, _lines
 
-THEMES = ("scriptorum.plain", "scriptorum.vaesen", "scriptorum.legends-and-lattes", "scriptorum.call-of-cthulhu")
+# 0.7.8: every bundled theme, the four general themes of F8 included.
+THEMES = ("scriptorum.plain", "scriptorum.vaesen", "scriptorum.legends-and-lattes", "scriptorum.call-of-cthulhu",
+          "scriptorum.whfrp", "scriptorum.the-one-ring", "scriptorum.wh40krp", "scriptorum.rogue-trader")
 PLAIN_GS = "scriptorum.plain-system"
 VAESEN_GS = "scriptorum.free-league-vaesen"
 

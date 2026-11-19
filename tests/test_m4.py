@@ -419,9 +419,11 @@ def test_T_LOOK_09_general_themes(library, session, tmp_path):
     # M5: the Plain theme is a general theme too (F8, decided 11 Nov 2026).
     # Corrected for 0.7.0 (F8, issue #23): a theme is offered wherever it
     # styles every block, so the Vaesen theme is offered here too (T-LOOK-13).
+    # Corrected for 0.7.8: four more bundled general themes (F8, T-LOOK-15).
+    more = {"scriptorum.whfrp", "scriptorum.the-one-ring", "scriptorum.wh40krp", "scriptorum.rogue-trader"}
     assert offered["test.other-game"] == {"scriptorum.legends-and-lattes", "scriptorum.call-of-cthulhu", "scriptorum.plain",
-                                          "scriptorum.vaesen"}
-    assert offered["scriptorum.free-league-vaesen"] == set(THEMES) | {"scriptorum.plain"}
+                                          "scriptorum.vaesen"} | more
+    assert offered["scriptorum.free-league-vaesen"] == set(THEMES) | {"scriptorum.plain"} | more
     for theme in ("scriptorum.legends-and-lattes", "scriptorum.call-of-cthulhu"):
         manifest = json.loads((BUNDLED / theme / "module.json").read_text("utf-8"))
         assert manifest["requires"] == [{"id": "scriptorum.core", "version": "1.x"}]
