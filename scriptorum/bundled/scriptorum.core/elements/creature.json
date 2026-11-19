@@ -76,5 +76,27 @@
   "handout": false,
   "editor": "form",
   "shortcut": null,
-  "toolbar_group": "people"
+  "toolbar_group": "people",
+  "paste_labels": {
+    "names": [
+      "Creature",
+      "Monster",
+      "Varelse",
+      "Väsen"
+    ],
+    "fields": {
+      "name": [
+        "Name",
+        "Namn"
+      ],
+      "type": [
+        "Type",
+        "Typ"
+      ],
+      "description": [
+        "Description",
+        "Beskrivning"
+      ]
+    }
+  }
 }

@@ -1,0 +1,82 @@
+# The documentation website (design document F24, 0.7.3, issue #34).
+#
+# Builds lyzio.github.io/Scriptorum with Zensical from text already in the
+# repository (tools/build_site.py says which) and publishes it with GitHub
+# Pages, source "GitHub Actions": no branch holds the built pages. Rebuilt on
+# every merge into main, whenever an issue is opened, closed, reopened or
+# relabelled (for the Status page), once a night, and from the Run workflow
+# button. Only main is published; a run from another branch only builds.
+#
+# Zensical runs only here, so nothing is added to the app, its dependencies
+# or its licence checks. The project manager switches Settings ▸ Pages ▸
+# Source to "GitHub Actions" once this workflow is on main.
+name: Documentation website
+
+on:
+  push:
+    branches: ["main"]
+  issues:
+    types: [opened, closed, reopened, labeled, unlabeled]
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Zensical (pinned)
+        run: python -m pip install "zensical==0.1.2"
+
+      - name: Fetch the open issues for the Status page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/issues?state=open&per_page=100" > issues.json
+
+      - name: Make the pages
+        run: python tools/build_site.py --issues issues.json
+
+      - name: Build the site
+        run: python -m zensical build --strict -f build/site/zensical.toml
+
+      - name: Keep the site for Pages
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: build/site/site
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1

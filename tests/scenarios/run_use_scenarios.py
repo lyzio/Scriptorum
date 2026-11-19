@@ -299,18 +299,29 @@ def use_01(window: MainWindow) -> dict:
     s.check("person converted", convert("PERSON: Lovisa Berg", "Person"))
     s.check("scene 2 converted (it starts a new scene)", convert("Scene 2: The chapel", "Scene"))
     s.check("hint converted", convert("HINT: The chapel's records", "Information"))
-    s.act("Hint type", "window.__u.select('.el-information .variant-select', -1, 'hint')")
     s.flush()
+    # 0.7.2 (0.7.0 step 3, issue #2): the typed labels went with the conversion.
+    pasted = s.state()["text"]
+    s.check("the scene is titled “The harbour” (#2)", '#scene(title: "The harbour"' in pasted)
+    s.check("Location and Present filled the scene's fields (#2)", 'location: "Skärvik harbour, early morning"' in pasted and "Location:" not in pasted)
+    s.check("the person is named “Lovisa Berg”, with Mood and Description (#2)", '#person(name: "Lovisa Berg", mood: "Tired and stubborn"' in pasted)
+    s.check("the secret starts with its text, and HINT made a hint (#2)", "SECRET:" not in pasted and "HINT:" not in pasted
+            and '#information(variant: "hint")[The chapel' in pasted)
     st = s.state()
     s.check("outline shows the act and both scenes", [o["title"] for o in st["outline"]][:3] == ["THE BELL OF SKÄRVIK", "Act one: The silent bell", "Scene 1: The harbour"] or
             [o["kind"] for o in st["outline"]].count("scene") == 2)
+    # 0.7.7 (issue #33): the person's lines "She knows (public): …" became
+    # Information inside the card, with their variants.
+    s.check("“She knows (public)” is public Information in the card (#33)",
+            '#information(variant: "public")[No boat has gone out since Sunday.]' in pasted and "She knows" not in pasted)
+    s.check("“She knows (secret)” is a secret in the card (#33)",
+            '#information(variant: "secret")[She heard her brother' in pasted)
     s.check("no build errors", st["errors"] == [])
     reply = json.loads(window.bridge.exportTo(str(OUT / "T-USE-01-pasted.pdf")))
     s.steps += 1
     s.log.append(f"{s.steps:>3}. Export PDF (second route) -> ok={reply.get('ok')}")
     s.check("PDF exported by the second route", bool(reply.get("ok")))
     (OUT / "T-USE-01-pasted.typ").write_text(s.state()["text"], "utf-8")
-    s.note("friction", "After converting pasted lines, the labels typed in the original text stay in the text: a scene is titled “Scene 1: The harbour”, a person “PERSON: Lovisa Berg” and Information starts with “SECRET:”. The Location and Present lines stay as paragraphs and have to be moved into the scene's fields by hand.", "later (import, L3)")
     s.shot("pasted")
     return s.summary()
 
@@ -436,6 +447,7 @@ def use_02(window: MainWindow) -> dict:
     (OUT / "T-USE-02.typ").write_text(st["text"], "utf-8")
     title_bar = window.windowTitle()
     s.log.append(f"     window title after export: {title_bar}")
+    connections_steps(s, window)   # 0.7.4: offline by default; turned on for the update steps
     world_steps(s, window)
     look_steps(s, window)
     print_steps(s, window)
@@ -447,6 +459,8 @@ def use_02(window: MainWindow) -> dict:
     update_steps(s, window)
     game_system_steps(s, window)
     fix_0610_steps(s, window)
+    step3_steps(s, window)
+    extension_steps(s, window)
     return s.summary()
 
 
@@ -936,7 +950,10 @@ def game_system_steps(s: Scenario, window: MainWindow) -> None:
         p.value = 'scriptorum.plain-system@1.0.0'; p.dispatchEvent(new Event('change')); return true; })()""", 1200)
     asked = s.js("document.getElementById('ask-dialog').open ? document.getElementById('ask-text').textContent : ''") or ""
     s.check("a list says what does not fit, before the preview", asked.startswith("Change to Plain?"))
-    s.check("the theme made for Vaesen is swapped for one made for Plain", "is not made for Plain" in asked)
+    # 0.7.0 step 2 (#23): a theme is offered for every game system whose
+    # blocks it styles, so the Vaesen theme stays with Plain.
+    s.check("the Vaesen theme stays, since it styles every block of Plain (#23)", "is not made for Plain" not in asked)
+    s.check("the theme stays after the change", window.bridge.session.adventure.theme.id == "scriptorum.vaesen")
     s.shot("game-system-fit")
     s.act("Try it in the preview", "window.__u.click('#ask-yes')", 2500)
     bar = s.js("document.getElementById('version-bar').classList.contains('hidden') ? '' : document.getElementById('version-bar-text').textContent") or ""
@@ -949,6 +966,114 @@ def game_system_steps(s: Scenario, window: MainWindow) -> None:
     s.check("it still builds", s.state()["errors"] == [])
     s.act("Undo", "window.__scriptorum.undo()", 2500)
     s.check("one undo brings Vaesen back", window.bridge.session.adventure.game_system.id == "scriptorum.free-league-vaesen")
+    # 0.7.0 step 2 (#21): the preview follows the editor.
+    follow = s.js("document.getElementById('zoom-follow').getAttribute('aria-pressed')")
+    s.check("the preview's Follow switch is on (#21)", follow == "true")
+    s.act("Click into the last scene", "window.__u.focus('#visual .el-scene .rich', document.querySelectorAll('#visual .el-scene .rich').length - 1)", 500)
+    s.check("the preview shows a mark where the editor is (#21)", bool(s.js("!!document.querySelector('#preview-pane .follow-mark')")))
+    s.shot("preview-follows")
+
+
+def step3_steps(s: Scenario, window: MainWindow) -> None:
+    """0.7.2 (0.7.0 step 3) steps of T-USE-02: the Game Master writes a
+    list of what the characters find, makes one item a sub-item, writes a
+    footnote and changes it in place."""
+    key = """((sel, i, key, shift) => { const el = window.__u.q(sel, i); el.focus();
+        const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+        getSelection().removeAllRanges(); getSelection().addRange(r);
+        el.dispatchEvent(new KeyboardEvent('keydown', {key, shiftKey: shift, bubbles: true, cancelable: true})); return true; })"""
+    s.act("Click into the first scene", "window.__u.focus('#visual .el-scene .rich', 0)")
+    insert_from_menu(s, "List")
+    s.check("a list to type in appears (#5)", bool(s.js("!!document.activeElement.closest('.list-edit')")))
+    s.act("Type the first item", "window.__u.type('#visual .list-text', -1, 'A wet rope')")
+    s.act("Enter", key + "('#visual .list-text', -1, 'Enter', false)", 400)
+    s.act("Type the second item", "window.__u.type('#visual .list-text', -1, 'with a sailor’s knot')")
+    s.act("Tab makes it a sub-item", key + "('#visual .list-text', -1, 'Tab', false)", 400)
+    s.flush()
+    s.check("the source has the list with a sub-item (#5)", "- A wet rope\n  - with a sailor’s knot" in s.state()["text"])
+    s.shot("list")
+    s.act("Write a footnote in the first paragraph", "window.__u.focus('#visual .el-scene .para', 0)")
+    s.act("…at the end of its text", """(() => { const el = window.__u.q('#visual .el-scene .para', 0);
+        const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+        getSelection().removeAllRanges(); getSelection().addRange(r); return true; })()""")
+    s.js('(() => { window.__scriptorum.flush(); return true; })()')
+    s.act("Insert the footnote", """(() => { const el = window.__u.q('#visual .el-scene .para', 0);
+        const holder = document.createElement('span'); holder.innerHTML = '<span class="ichip footnote" contenteditable="false" data-src="#footnote(text: &quot;Written in 1871.&quot;)">† Written in 1871.</span>';
+        el.append(holder.firstChild); el.dispatchEvent(new Event('input', {bubbles: true})); return true; })()""", 600)
+    s.act("Click the footnote's chip", "window.__u.click('#visual .ichip.footnote')", 300)
+    s.check("a box shows the footnote's text (#4)", s.js("document.querySelector('.footnote-edit .rich')?.textContent") == "Written in 1871.")
+    s.act("Change the year, with a bold word", """(() => { const b = document.querySelector('.footnote-edit .rich');
+        b.innerHTML = 'Written in <b>1872</b>.'; b.dispatchEvent(new Event('input', {bubbles: true})); return true; })()""")
+    s.shot("footnote-edit")
+    s.act("Enter", "document.querySelector('.footnote-edit .rich').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true}))", 600)
+    s.flush()
+    s.check("the footnote is changed in the text (#4)", '#footnote(text: "Written in *1872*.")' in s.state()["text"])
+    s.check("it still builds", s.state()["errors"] == [])
+
+
+def connections_steps(s: Scenario, window: MainWindow) -> None:
+    """0.7.4 (0.7.0 step 5, F25.1) steps of T-USE-02: the Game Master finds
+    that Scriptorum is offline, and turns connections on to get updates."""
+    settings = window.bridge.session.app_settings
+    s.check("connections outside the app are blocked by default", settings.get("connections_blocked") is True)
+    s.act("Help ▸ Check for updates…", "window.__scriptorum.updates.check(); true", 1200)
+    s.check("it says connections are blocked and sends nothing",
+            (s.js("document.getElementById('update-text').textContent") or "").startswith("Connections outside the app are blocked")
+            and window.bridge.api.net.requests == [])
+    s.shot("updates-blocked")
+    s.act("Open Settings from the update window", "window.__u.click('#update-settings')", 600)
+    s.check("Settings opens on Application, with the switch on",
+            s.js("document.getElementById('app-connectionsBlocked').checked") is True)
+    s.act("Turn the switch off", "window.__u.click('#app-connectionsBlocked')", 500)
+    s.check("connections are allowed now", settings.get("connections_blocked") is False)
+    s.act("Done", "window.__u.click('#settings-close')")
+
+
+def extension_steps(s: Scenario, window: MainWindow) -> None:
+    """0.7.4 (0.7.0 step 5, F25) steps of T-USE-02: the Game Master installs
+    a small extension, reads what it needs, switches it on and uses it from
+    the Extensions menu; its findings lead to the text."""
+    from tests.test_step5 import FakeKeychain, make_extension, packed
+    window.bridge.api.extensions.keychain = FakeKeychain()
+    file = packed(make_extension(OUT / "extension"), OUT)
+    s.act("Settings ▸ Extensions", "window.__scriptorum.openSettingsWindow('extensions')", 600)
+    s.act("Install extension…", f"window.__scriptorum.shell.installExtensionFile({json.dumps(str(file))}); true", 1200)
+    needs = s.js("[...document.querySelectorAll('#ext-consent-needs li')].map(li => li.textContent)") or []
+    s.check("before installing, it says what the extension needs", "Reads the text of the open adventure" in needs)
+    s.check("and that it is unverified", (s.js("document.getElementById('ext-consent-verified').textContent") or "").startswith("Unverified"))
+    s.shot("extension-consent")
+    s.act("Install", "window.__u.click('#ext-consent-ok')", 1000)
+    s.check("it is listed, switched off", s.js("document.querySelector('[data-extension=\"test.checker\"] input[data-action=on]').checked") is False)
+    s.act("Switch it on", "window.__u.click('[data-extension=\"test.checker\"] input[data-action=on]')", 1200)
+    s.shot("extensions")
+    s.act("Done", "window.__u.click('#settings-close')")
+    s.check("an Extensions menu appears", "Extensions" in (s.js("[...document.querySelectorAll('#menubar .menu-btn')].map(b => b.textContent)") or []))
+    s.act("Extensions ▸ Check headings", "window.__u.menu('Extensions'); window.__u.pick('Check headings')", 3000)
+    s.check("its findings are listed in the Extensions tab of the left pane",
+            (s.js("document.querySelectorAll('#ext-tab .ext-findings li').length") or 0) > 0
+            and s.js("document.getElementById('lt-extensions').getAttribute('aria-selected')") == "true")
+    s.shot("extension-findings")
+    # 0.7.5: a suggestion under its block, accepted; a picture, used.
+    from tests.test_step6 import suggester
+    window.bridge.api.extensions.install(str(packed(suggester(OUT / "helper"), OUT)), True)
+    window.bridge.api.extensions.set_on("test.helper", True)
+    s.act("Load the second extension", "window.__scriptorum.extensions.load()", 600)
+    s.act("Ask it for suggestions", "window.__scriptorum.extensions.run('test.helper', 'suggest', {})", 3000)
+    s.check("each suggestion shows under its block", (s.js("document.querySelectorAll('#visual .ext-suggestion').length") or 0) >= 1)
+    s.shot("extension-suggestions")
+    s.act("Accept the first", "document.querySelector('#visual .ext-suggestion .small-btn.primary').click(); true", 1200)
+    s.check("Undo names the extension", (s.js("window.__scriptorum.extensions.undoLabel()") or "").startswith("Undo Checker"))
+    s.act("Ask it for a picture", "window.__scriptorum.extensions.run('test.helper', 'picture', {})", 3000)
+    s.check("the picture waits in the Extensions tab", (s.js("document.querySelectorAll('#ext-tab .ext-picture').length") or 0) == 1)
+    s.shot("extension-picture")
+    s.act("Use", "document.querySelector('#ext-tab .ext-picture .small-btn.primary').click(); true", 1200)
+    s.flush()
+    s.check("the picture is in the text with its description", 'alt: "The mill at dusk"' in s.state()["text"])
+    s.act("Help ▸ How to write an extension", "window.__scriptorum.openGuide('guide-extension'); true", 800)
+    s.check("the guide opens", s.js("document.getElementById('guide-title').textContent") == "How to write an extension")
+    s.shot("guide-extension")
+    s.act("Close the guide", "window.__u.click('#guide-close')")
+    window.bridge.api.extensions.stop_all()
 
 
 def fix_0610_steps(s: Scenario, window: MainWindow) -> None:

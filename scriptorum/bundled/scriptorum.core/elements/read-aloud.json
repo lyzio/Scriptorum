@@ -11,5 +11,13 @@
   "editor": "frame",
   "shortcut": "Ctrl+Shift+R",
   "body_required": true,
-  "toolbar_group": "boxes"
+  "toolbar_group": "boxes",
+  "paste_labels": {
+    "names": [
+      "Read aloud",
+      "Read-aloud",
+      "Läs högt",
+      "Högläsning"
+    ]
+  }
 }

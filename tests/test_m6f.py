@@ -76,7 +76,7 @@ def test_T_REL_14_kit_writes_only_the_installer():
     assert "def source_archive" not in build and "source.zip" not in build
     assert "SHA256SUMS" not in finish and "user-docs" not in finish
     assert "zipfile" not in build
-    assert json.loads((ROOT / "packaging" / "kit.json").read_text("utf-8"))["kit_version"] == "1.0.4"
+    assert json.loads((ROOT / "packaging" / "kit.json").read_text("utf-8"))["kit_version"] in ("1.0.4", "1.0.5")  # corrected for 0.7.4: 1.0.5 adds keyring
     # The notes stay inside the installers.
     assert "INSTALL-macOS.txt" in build and "INSTALL-Windows.txt" in build
     for notes in (ROOT / "packaging" / "user-docs").glob("INSTALL-*.txt"):
@@ -139,7 +139,9 @@ def test_T_REL_14_release_description_with_linux_notes(tmp_path):
 # The first major version of each action that runs on Node 24.
 NODE24 = {"actions/checkout": 5, "actions/setup-python": 6, "actions/upload-artifact": 6,
           "actions/download-artifact": 7, "actions/setup-node": 5, "github/codeql-action/init": 4,
-          "github/codeql-action/analyze": 4}
+          "github/codeql-action/analyze": 4,
+          # Corrected for 0.7.3: the documentation website's workflow (F24).
+          "actions/upload-pages-artifact": 5, "actions/deploy-pages": 5}
 
 
 @pytest.mark.unit
@@ -307,8 +309,8 @@ def _text(ui) -> str:
 @pytest.mark.ui
 def test_T_UI_51_logo(ui):
     """T-UI-51: the logo shows on the welcome screen (in place of the pen nib
-    and the name), in the About window and in the start-up window, as a card
-    with rounded corners and the description "Scriptorum logo"; About still
+    and the name), in the About window and in the start-up window, with the
+    description "Scriptorum logo"; About still
     shows the name and version; Under the hood lists it with CC BY-SA 4.0 and
     its full text, which the Licences tab also holds; the README starts with
     it; the file icons are unchanged; no exported PDF holds it."""
@@ -316,7 +318,8 @@ def test_T_UI_51_logo(ui):
     assert ui.js("!document.getElementById('welcome').classList.contains('hidden')")
     ui.wait_until(lambda: ui.js(f"{logo}.complete && {logo}.naturalWidth") == 512, 10)
     assert ui.js(f"{logo}.alt") == "Scriptorum logo"
-    assert ui.js(f"parseFloat(getComputedStyle({logo}).borderTopLeftRadius)") >= 8
+    # Corrected for 0.7.3: the new logo has no card with rounded corners
+    # (F9); T-UI-58 checks how it is drawn.
     assert ui.js("document.querySelector('#welcome .nib')") is None
     assert ui.js("document.querySelector('#welcome h1').textContent") == "Scriptorum"
     assert ui.js("document.querySelector('#welcome h1').getBoundingClientRect().width") <= 1
@@ -327,7 +330,6 @@ def test_T_UI_51_logo(ui):
         about = "document.querySelector('#about-dialog .about-logo')"
         ui.wait_until(lambda: ui.js(f"{about}.complete && {about}.naturalWidth") == 512, 10)
         assert ui.js(f"{about}.alt") == "Scriptorum logo" and ui.js(f"{about}.getBoundingClientRect().width") > 60
-        assert ui.js(f"parseFloat(getComputedStyle({about}).borderTopLeftRadius)") >= 8
         assert ui.js("document.querySelector('#about-dialog .about-head h2').textContent") == "Scriptorum"
         assert __import__("scriptorum").__version__ in ui.js("document.getElementById('about-version').textContent")
         ui.js("document.getElementById('about-close').click(); true")
@@ -342,17 +344,17 @@ def test_T_UI_51_logo(ui):
     # The README and the files.
     readme = (ROOT / "README.md").read_text("utf-8")
     assert readme.startswith('<p align="center"><img src="scriptorum/ui/logo.png"') and "CC BY-SA 4.0" in readme
-    assert (ROOT / "docs" / "logo" / "scriptorum-logo.png").stat().st_size > 1_000_000
+    assert (ROOT / "docs" / "logo" / "scriptorum-logo.png").stat().st_size > 500_000  # 0.7.3: the 832-pixel line art
     assert not (ROOT / "scriptorum" / "ui" / "logo.svg").exists()
     for icon in ("scriptorum.png", "scav.png", "scmod.png"):
         assert (ROOT / "packaging" / "icons" / icon).is_file()
-    # The start-up window: the logo above the name, with rounded corners.
+    # The start-up window: the logo above the name.
     from scriptorum.app.startup_window import LOGO_SIZE, StartupWindow, logo_pixmap
     from scriptorum.core.startup import Startup, bundled_strings
     window = StartupWindow(Startup(), bundled_strings(), "0.6.10")
     assert not window.logo.pixmap().isNull() and window.logo.accessibleName() == "Scriptorum logo"
-    card = logo_pixmap(LOGO_SIZE, 1.0).toImage()
-    assert card.width() == LOGO_SIZE and card.pixelColor(0, 0).alpha() == 0 and card.pixelColor(60, 60).alpha() == 255
+    picture = logo_pixmap(LOGO_SIZE, 1.0).toImage()
+    assert picture.width() == LOGO_SIZE and picture.pixelColor(0, 0).alpha() == 0
     window.close()
 
 
@@ -484,7 +486,8 @@ def test_T_UI_50_plus_menu_in_groups(ui):
         assert headings == [h for h in ORDER if h in headings]
         assert headings[:3] == ["Text", "Structure", "Boxes"] and "People" in headings and "Rules" in headings
         columns = {c[0]: c[1:] for c in top}
-        assert [x.rstrip("…") for x in columns["Text"]] == ["Paragraph", "Table", "Image", "Footnote"]
+        # Corrected for 0.7.0 step 3 (issue #5): List joins the Text group.
+        assert [x.rstrip("…") for x in columns["Text"]] == ["Paragraph", "List", "Table", "Image", "Footnote"]
         assert columns["Layout"] == ["Table of contents", "Full-width section", "Never split"]
         assert "Other" not in columns          # the bundled game systems add no element outside the groups
         assert columns["Boxes"][:3] == ["Read-aloud", "Secret", "Public information"]

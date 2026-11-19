@@ -9,8 +9,8 @@ import iconCornersIn from "./icons/corners-in.svg";
 import iconCornersOut from "./icons/corners-out.svg";
 import { aboutTest, initAbout, openAbout } from "./about";
 import { dragging, DropTarget, startDrag } from "./drag";
-import { EditorHooks, isSubHeading, kindOf, Place, SourceEditor, SUB_HEADINGS, VisualEditor } from "./editor";
-import { escapeInline, setChipLabeler, setInlineKinds } from "./inline";
+import { EditorHooks, footnoteText, isSubHeading, kindOf, Place, SourceEditor, SUB_HEADINGS, VisualEditor } from "./editor";
+import { escapeInline, inlineToPlain, setChipLabeler, setInlineKinds } from "./inline";
 import { Block, Chapter, Doc, ElementDef, isDoc, OutlineItem } from "./model";
 import { Spelling } from "./spell";
 import {
@@ -66,6 +66,10 @@ const state = {
   // M3: history positions at which a codex or map change was made, so Undo
   // undoes it in the core (F4.12).
   worldMarks: [] as number[],
+  // F25.12 (0.7.4): undo steps an extension made, named after it.
+  extUndo: [] as { mark: number; name: string }[],
+  // F25.17: the switched-on extensions' menu items, block actions and panels.
+  extensions: [] as any[],
   handoutsOnly: false,
   adventureId: null as string | null,
   navTab: "outline" as "outline" | "codex" | "handouts",
@@ -162,8 +166,10 @@ async function undo(): Promise<void> {
   await flush();
   const mark = state.worldMarks[state.worldMarks.length - 1];
   if (mark !== undefined && mark >= state.historyPos) {
-    // The last change was in the codex, a map or the chart.
+    // The last change was in the codex, a map or the chart, or an extension's (F25.12).
     state.worldMarks.pop();
+    const named = state.extUndo[state.extUndo.length - 1];
+    if (named && named.mark === mark) state.extUndo.pop();
     const system = [state.info?.gameSystem?.id, state.info?.theme?.id].join(" ");
     const reply = await call("worldUndo");
     if (reply?.ok) {
@@ -620,7 +626,7 @@ function menuModel(): { key: string; items: MenuItem[] }[] {
       { label: t("menu.quit"), action: () => call("quit"), shortcut: "Ctrl+Q" },
     ] },
     { key: "menu.edit", items: [
-      { label: t("menu.undo"), action: () => undo(), shortcut: "Ctrl+Z", disabled: !has || ro },
+      { label: undoLabel(), action: () => undo(), shortcut: "Ctrl+Z", disabled: !has || ro },
       { label: t("menu.redo"), action: () => redo(), shortcut: "Ctrl+Shift+Z", disabled: !has || ro },
       { label: t("menu.find"), action: () => openFind(), shortcut: "Ctrl+F", disabled: !has },
       { label: t("menu.upgrade"), action: () => offerUpgrade(true), disabled: !has || ro },
@@ -645,9 +651,14 @@ function menuModel(): { key: string; items: MenuItem[] }[] {
     { key: "menu.format", items: [
       { label: t("toolbar.bold"), action: () => document.execCommand("bold"), shortcut: "Ctrl+B", disabled: !has || ro },
       { label: t("toolbar.italic"), action: () => document.execCommand("italic"), shortcut: "Ctrl+I", disabled: !has || ro },
+      // F4 (issue #5): the list at the cursor, bulleted or numbered.
+      { label: t("editor.toBulleted"), action: () => listKind(false), disabled: !has || ro || focusedList()?.ordered !== true },
+      { label: t("editor.toNumbered"), action: () => listKind(true), disabled: !has || ro || focusedList()?.ordered !== false },
       { label: t("menu.style"), disabled: !has || ro, children:
         styleKinds().map((kind) => ({ label: kindLabel(kind), action: () => setStyle(kind) })) },
     ] },
+    // F25.17 (0.7.4): only while a switched-on extension has a menu item.
+    ...(extensionMenu().length ? [{ key: "menu.extensions", items: extensionMenu() }] : []),
     { key: "menu.help", items: [
       { label: t("menu.example"), action: () => openExample() },
       // F9 (M5): the start-up checks on demand, with the theme self-test.
@@ -661,9 +672,285 @@ function menuModel(): { key: string; items: MenuItem[] }[] {
       // F19 (M5): the author guides, opened inside the app.
       { label: t("menu.guideTheme"), action: () => openGuide("guide-theme") },
       { label: t("menu.guideGameSystem"), action: () => openGuide("guide-game-system") },
+      // F25.19 (0.7.5): the third author guide.
+      { label: t("menu.guideExtension"), action: () => openGuide("guide-extension") },
       { label: t("menu.about"), action: () => openAbout() },
     ] },
   ];
+}
+
+/** F25.12: "Undo Heading tidy: Raise headings" when the last step is an extension's. */
+function undoLabel(): string {
+  const mark = state.worldMarks[state.worldMarks.length - 1];
+  const named = state.extUndo[state.extUndo.length - 1];
+  if (named && mark !== undefined && named.mark === mark && mark >= state.historyPos) return t("menu.undoNamed", { name: named.name });
+  return t("menu.undo");
+}
+
+/** F25.17: the Extensions menu, one group per switched-on extension. */
+function extensionMenu(): MenuItem[] {
+  const has = !!state.info?.hasDocument;
+  const items: MenuItem[] = [];
+  for (const e of state.extensions) {
+    if (!e.menu?.length) continue;
+    items.push({ label: e.name, heading: true });
+    for (const m of e.menu) items.push({ label: m.label, action: () => runExtension(e.id, m.id, {}), disabled: !has });
+  }
+  return items;
+}
+
+/** F25.12: the author asked an extension to do something. Waiting edits go
+ * to the core first, so the extension sees the text as it is on screen. */
+async function runExtension(id: string, command: string, context: any): Promise<void> {
+  await flush();
+  const reply = await call("runExtension", id, command, JSON.stringify({ chapter: state.chapterIndex, line: state.line, ...context }));
+  if (reply?.ok === false) showMessage(reply.error ?? "");
+}
+
+async function loadExtensions(): Promise<void> {
+  state.extensions = (await call("extensionContributions")) ?? [];
+  buildMenus();
+  await renderExtTab();
+}
+
+/** F25.11 to F25.17: what an extension sent back. */
+async function onExtensionNotice(n: any): Promise<void> {
+  if (n.kind === "findings" || n.kind === "suggestion" || n.kind === "picture") {
+    await renderExtTab(true);
+  } else if (n.kind === "done" || n.kind === "failed") {
+    if (n.wrote) {
+      await reloadAfterWorld();
+      state.worldMarks.push(state.historyPos);
+      state.extUndo.push({ mark: state.historyPos, name: n.undoName });
+      buildMenus();
+    }
+    if (n.kind === "failed" || !n.ok) showMessage(n.message);
+    else if (n.wrote) flashStatus(t("ext.changed", { name: n.name, label: n.label }) + (n.message ? " " + n.message : ""));
+    else flashStatus(n.message || t("ext.done", { name: n.name, label: n.label }));
+  } else if (n.kind === "switchedOff") {
+    showMessage(n.message);
+    await loadExtensions();
+  }
+  document.body.dataset.extNotices = String(Number(document.body.dataset.extNotices || 0) + 1);
+}
+
+// --- the Extensions tab and suggestions (F25, 0.7.5) -----------------------------------------
+
+let extTab: any = { show: false, sections: [] };
+let lowerTab: "scene" | "extensions" = "scene";
+const extFolded = new Set<string>();
+
+function showLowerTab(which: "scene" | "extensions"): void {
+  lowerTab = extTab.show ? which : "scene";
+  const onExt = lowerTab === "extensions";
+  $("lt-scene").setAttribute("aria-selected", String(!onExt));
+  $("lt-extensions").setAttribute("aria-selected", String(onExt));
+  for (const id of ["scene-panel-scene", "scene-panel-list"]) $(id).classList.toggle("hidden", onExt);
+  $("ext-tab").classList.toggle("hidden", !onExt);
+}
+
+async function goToLine(chapter: number, line: number): Promise<void> {
+  if (chapter !== state.chapterIndex && chapter < (state.info?.chapters ?? []).length) await loadChapter(chapter, true);
+  if (state.mode === "source") source.goToLine(line);
+  else visual.scrollToLine(line);
+}
+
+function smallButton(label: string, action: () => void, primary = false): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "small-btn" + (primary ? " primary" : "");
+  b.textContent = label;
+  b.addEventListener("click", action);
+  return b;
+}
+
+/** The Extensions tab: one section per switched-on extension, most recently
+ * active first and open (F25, 0.7.5). */
+async function renderExtTab(focus = false): Promise<void> {
+  extTab = (await call("extensionTab")) ?? { show: false, sections: [] };
+  $("lower-tabs").classList.toggle("hidden", !extTab.show);
+  $("scene-panel").classList.toggle("tabs-on", !!extTab.show);
+  const box = $("ext-tab");
+  box.textContent = "";
+  extTab.sections.forEach((sec: any, index: number) => {
+    const details = document.createElement("details");
+    details.className = "ext-section";
+    details.dataset.extension = sec.id;
+    details.open = index === 0 ? !extFolded.has(sec.id) : false;
+    details.addEventListener("toggle", () => (details.open ? extFolded.delete(sec.id) : extFolded.add(sec.id)));
+    const summary = document.createElement("summary");
+    summary.textContent = sec.name;
+    details.append(summary);
+    for (const f of sec.findings) {
+      const h = document.createElement("h4");
+      h.textContent = `${f.title} (${f.items.length})`;
+      const list = document.createElement("ul");
+      list.className = "ext-findings";
+      if (!f.items.length) list.append(Object.assign(document.createElement("li"), { textContent: t("ext.findingsNone") }));
+      for (const item of f.items) {
+        const li = document.createElement("li");
+        li.textContent = item.text;
+        if (typeof item.line === "number") {
+          li.classList.add("goes");
+          li.addEventListener("click", () => goToLine(typeof item.chapter === "number" ? item.chapter : state.chapterIndex, item.line));
+        }
+        list.append(li);
+      }
+      details.append(h, list);
+    }
+    if (sec.suggestions.length) {
+      const h = document.createElement("h4");
+      h.textContent = t("ext.suggestionsTitle", { count: sec.suggestions.length });
+      const list = document.createElement("ul");
+      list.className = "ext-suggestion-list";
+      for (const s of sec.suggestions) {
+        const li = document.createElement("li");
+        li.className = "goes";
+        li.dataset.suggestion = s.id;
+        li.textContent = s.label || t(s.kind === "add" ? "ext.suggestAdd" : "ext.suggestReplace");
+        li.addEventListener("click", async () => {
+          await goToLine(s.chapter, s.line);
+          const card = document.querySelector<HTMLElement>(`.ext-suggestion[data-suggestion="${s.id}"]`);
+          card?.classList.add("flash");
+          setTimeout(() => card?.classList.remove("flash"), 1200);
+        });
+        list.append(li);
+      }
+      details.append(h, list);
+    }
+    for (const pic of sec.pictures) details.append(pictureBox(pic));
+    if (sec.settings.length) {
+      const h = document.createElement("h4");
+      h.textContent = t("ext.settingsTitle");
+      details.append(h);
+      for (const s of sec.settings) details.append(settingControl(sec.id, s));
+    }
+    box.append(details);
+  });
+  if (!extTab.show) showLowerTab("scene");
+  else if (focus) showLowerTab("extensions");
+  placeSuggestions();
+  document.body.dataset.extTab = String(Number(document.body.dataset.extTab || 0) + 1);
+}
+
+function settingControl(ext: string, s: any): HTMLElement {
+  const row = document.createElement("label");
+  row.className = "settings-row";
+  row.append(Object.assign(document.createElement("span"), { textContent: s.label }));
+  let control: HTMLInputElement | HTMLSelectElement;
+  if (s.kind === "choice") {
+    control = document.createElement("select");
+    for (const o of s.options) control.append(Object.assign(document.createElement("option"), { value: o, textContent: o }));
+    control.value = s.value;
+  } else {
+    control = document.createElement("input");
+    control.type = s.kind === "secret" ? "password" : "text";
+    control.autocomplete = "off";
+    if (s.kind === "secret") control.placeholder = t(s.set ? "ext.secretSet" : "ext.secretNotSet");
+    else control.value = s.value ?? "";
+  }
+  control.dataset.setting = s.id;
+  control.addEventListener("change", async () => {
+    const reply = await call("setExtensionSetting", ext, s.id, control.value);
+    if (reply?.ok === false) showMessage(reply.error ?? "");
+    if (s.kind === "secret") control.value = "";
+    await renderExtTab();
+  });
+  row.append(control);
+  return row;
+}
+
+function pictureBox(pic: any): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "ext-picture";
+  box.dataset.picture = pic.id;
+  const img = document.createElement("img");
+  img.src = `data:image/${pic.format === "png" ? "png" : "jpeg"};base64,${pic.base64}`;
+  img.alt = pic.description;
+  const note = document.createElement("p");
+  note.textContent = pic.description;
+  const buttons = document.createElement("div");
+  buttons.className = "ext-buttons";
+  const portrait = pic.blockKind === "person" || pic.blockKind === "card";
+  buttons.append(
+    smallButton(t(portrait ? "ext.setPortrait" : "ext.use"), () => usePicture(pic.id, portrait), true),
+    smallButton(t("ext.regenerate"), async () => {
+      const reply = await call("regeneratePicture", pic.id);
+      if (reply?.ok === false) showMessage(reply.error ?? "");
+      await renderExtTab();
+    }),
+    smallButton(t("dialog.cancel"), async () => { await call("cancelPicture", pic.id); await renderExtTab(); }),
+  );
+  box.append(img, note, buttons);
+  return box;
+}
+
+/** A change an extension made at the author's word: one undo step named after it. */
+async function extensionChanged(undoName: string): Promise<void> {
+  await reloadAfterWorld();
+  state.worldMarks.push(state.historyPos);
+  state.extUndo.push({ mark: state.historyPos, name: undoName });
+  buildMenus();
+}
+
+async function usePicture(id: string, portrait: boolean): Promise<void> {
+  await flush();
+  const reply = await call("usePicture", id, portrait);
+  if (reply?.ok === false) showMessage(reply.error ?? "");
+  else await extensionChanged(reply.undoName);
+  await renderExtTab();
+}
+
+async function decideSuggestion(id: string, accept: boolean): Promise<void> {
+  await flush();
+  const reply = await call(accept ? "acceptSuggestion" : "rejectSuggestion", id);
+  if (reply?.ok === false) showMessage(reply.error ?? "");
+  else if (accept) await extensionChanged(reply.undoName);
+  await renderExtTab();
+}
+
+/** Each open suggestion of this chapter, under its block in the Visual editor. */
+function placeSuggestions(): void {
+  for (const old of document.querySelectorAll(".ext-suggestion")) old.remove();
+  if (state.mode === "source") return;
+  for (const sec of extTab.sections ?? []) {
+    for (const s of sec.suggestions) {
+      if (s.chapter !== state.chapterIndex) continue;
+      const block = document.querySelector<HTMLElement>(`#visual section[data-line="${s.line}"]`);
+      if (!block) continue;
+      const card = document.createElement("div");
+      card.className = "ext-suggestion";
+      card.dataset.suggestion = s.id;
+      card.contentEditable = "false";
+      card.append(Object.assign(document.createElement("div"), {
+        className: "from", textContent: t(s.kind === "add" ? "ext.suggestAddFrom" : "ext.suggestReplaceFrom", { name: s.name }) }));
+      const text = document.createElement("div");
+      text.className = "proposed" + (s.kind === "add" ? " adding" : "");
+      s.pieces.forEach((piece: any, i: number) => {
+        if (i) text.append(" ");
+        if (piece.changed && s.kind === "replace") text.append(Object.assign(document.createElement("mark"), { textContent: piece.text }));
+        else text.append(piece.text);
+      });
+      const buttons = document.createElement("div");
+      buttons.className = "ext-buttons";
+      buttons.append(smallButton(t("ext.accept"), () => decideSuggestion(s.id, true), true),
+        smallButton(t("ext.reject"), () => decideSuggestion(s.id, false)));
+      card.append(text, buttons);
+      block.after(card);
+    }
+  }
+}
+
+/** The list holding the cursor, if any (F4, issue #5). */
+function focusedList(): Block | null {
+  const place = visual.focused();
+  const block = place ? place.list.blocks[place.index] : null;
+  return block && block.type === "list" ? block : null;
+}
+
+function listKind(ordered: boolean): void {
+  const place = visual.focused();
+  if (place) visual.setListKind(place, ordered);
 }
 
 function kindLabel(kind: string): string {
@@ -675,19 +962,21 @@ function kindLabel(kind: string): string {
   if (kind === "heading-4") return t("editor.subHeading2");
   if (kind === "heading-5") return t("editor.subHeading3");
   if (kind === "table") return t("editor.table");
+  if (kind === "list") return t("editor.list");
   if (kind === "image") return t("editor.image");
   return state.defs.find((d) => d.id === kind)?.name ?? kind;
 }
 
 function insertItems(kinds?: string[], onPick?: (kind: string) => void): MenuItem[] {
   const pick = onPick ?? ((kind: string) => insert(kind));
-  const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside).map((d) => d.id), "table", "image"];
+  const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside && d.offered !== false).map((d) => d.id), "list", "table", "image"];
   const items: MenuItem[] = [];
   for (const kind of ["paragraph", "heading", ...SUB_HEADINGS, "scene-end"]) {
     if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
   }
   const seenGroups = new Set<string>();
-  for (const def of state.defs.filter((d) => d.category !== "layout" && allowed.includes(d.id))) {
+  const isLayout = (d: ElementDef) => d.category === "layout" || LAYOUT_KINDS.includes(d.id);
+  for (const def of state.defs.filter((d) => !isLayout(d) && allowed.includes(d.id))) {
     let shortcut = def.shortcut ?? undefined;
     if (def.shortcutGroup) {
       if (seenGroups.has(def.shortcutGroup)) shortcut = undefined;
@@ -697,10 +986,11 @@ function insertItems(kinds?: string[], onPick?: (kind: string) => void): MenuIte
     // F3 (M6 part C4): Insert ▸ Clue adds a clue as Information.
     if (def.id === "information" && pickerType("clue")) items.push({ label: t("menu.insertClue"), action: () => pick("clue") });
   }
-  for (const kind of ["table", "image"]) {
+  for (const kind of ["list", "table", "image"]) {
     if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
   }
-  const layout = state.defs.filter((d) => d.category === "layout" && allowed.includes(d.id));
+  // The layout markers under their own heading, as in the + menu (F9, F7.4).
+  const layout = state.defs.filter((d) => isLayout(d) && allowed.includes(d.id));
   if (layout.length) {
     items.push({ label: t("menu.layout"), heading: true });
     for (const def of layout) items.push({ label: def.name, action: () => pick(def.id), shortcut: def.shortcut ?? undefined });
@@ -712,13 +1002,13 @@ function insertItems(kinds?: string[], onPick?: (kind: string) => void): MenuIte
  * elements in groups shown side by side: Text, the toolbar's groups in the
  * toolbar's order, Layout and Other. Only what is allowed at that place is
  * listed, and a group with nothing in it is left out. */
-const LAYOUT_KINDS = ["full-width", "keep-together", "contents"];
+const LAYOUT_KINDS = ["full-width", "column-section", "keep-together", "contents"];
 
 function groupedInsertItems(kinds: string[], pick: (kind: string, variant?: string) => void): MenuItem[] {
   const used = new Set<string>();
   const columns: { label: string; items: MenuItem[] }[] = [];
   const text: MenuItem[] = [];
-  for (const kind of ["paragraph", "table", "image", "footnote"]) {
+  for (const kind of ["paragraph", "list", "table", "image", "footnote"]) {
     if (!kinds.includes(kind)) continue;
     used.add(kind);
     const def = state.defs.find((d) => d.id === kind);
@@ -921,6 +1211,14 @@ async function openNewDialog(): Promise<void> {
       const option = document.createElement("option");
       option.value = JSON.stringify(theme);
       option.textContent = theme.name;
+      th.append(option);
+    }
+    // F8 (#23): a theme locked for this game system, greyed out with the reason.
+    for (const theme of systems[Number(gs.value)]?.locked ?? []) {
+      const option = document.createElement("option");
+      option.disabled = true;
+      option.className = "locked";
+      option.textContent = t("settings.themeLocked", { name: theme.name, reason: theme.reason });
       th.append(option);
     }
   };
@@ -1228,7 +1526,8 @@ async function insert(kind: string, place?: Place | null, variant?: string): Pro
       getSelection()?.removeAllRanges();
       getSelection()?.addRange(range);
     }
-    if (!visual.insertInline(`#footnote(text: ${JSON.stringify(answer.text.trim())})`)) flashStatus(t("codex.placeCursor"));
+    // From 0.7.0 step 3 (issue #4) the text is inline markup, so what is typed is escaped.
+    if (!visual.insertInline(`#footnote(text: ${JSON.stringify(escapeInline(answer.text.trim()))})`)) flashStatus(t("codex.placeCursor"));
     return;
   }
     if (def?.inlineForm === "call" && place === undefined) {
@@ -1325,6 +1624,12 @@ function openContextMenu(event: MouseEvent, place: Place): void {
         codex.types.some((x) => x.card === block.kind)) {
       items.push({ label: t("codex.toEntry"), action: () => convertToCodex(place) });
     }
+    // F4 (0.7.0 step 3, issue #5): a list switches between bulleted and numbered.
+    if (block?.type === "list") {
+      items.push(block.ordered
+        ? { label: t("editor.toBulleted"), action: () => visual.setListKind(place, false) }
+        : { label: t("editor.toNumbered"), action: () => visual.setListKind(place, true) });
+    }
     // F4 (M6 part C): Raise and Lower a sub-heading, one level at a time;
     // Lower only where it would not skip a level.
     if (isSubHeading(block)) {
@@ -1336,6 +1641,13 @@ function openContextMenu(event: MouseEvent, place: Place): void {
       items.push({ label: t("editor.convertTo"), heading: true });
       for (const kind of convert) items.push({ label: kindLabel(kind), action: () => visual.convert(place, kind) });
     }
+    // F25.17 (0.7.4): the switched-on extensions' actions on this kind of block.
+    const target = place.list.blocks[place.index];
+    const kind = target?.type === "element" ? target.kind : target?.type;
+    const actions = state.extensions.flatMap((e: any) => (e.blockActions ?? [])
+      .filter((a: any) => !a.kinds?.length || a.kinds.includes(kind))
+      .map((a: any) => ({ label: `${e.name}: ${a.label}`, action: () => runExtension(e.id, a.id, { block: { kind, path: visual.pathOf(place) } }) })));
+    if (actions.length) items.push({ label: t("ext.blockActions"), heading: true }, ...actions);
     items.push({ label: t("editor.insertAfter"), heading: true });
     items.push(...insertItems(visual.kindsFor(place.list, place.chain, null).filter((k) =>
       place.chain.length === 0 || k !== "heading"), (kind) => insert(kind, place)));
@@ -1802,6 +2114,81 @@ function renderPages(): void {
   updateStatus();
 }
 
+// --- the preview follows the Visual editor (F7.2, 0.7.0, issue #21) ------------------------
+
+let follow = true;
+let lastFollowed = ""; // the block followed to last, so typing in it does not scroll again
+let lastManualPreview = 0;
+let previewScrollingByUs = 0;
+const MANUAL_PAUSE_MS = 2000;
+
+function renderFollow(): void {
+  $("zoom-follow").setAttribute("aria-pressed", String(follow));
+}
+
+/** The element of a block, or for a paragraph the nearest element before it
+ * in the same chapter (the build's element map, F12). */
+function spotFor(chapter: number, path: number[]): ElementSpot | null {
+  let best: ElementSpot | null = null;
+  for (const spot of state.elements) {
+    if (spot.chapter !== chapter) continue;
+    if (comparePaths(spot.path, path) > 0) continue;
+    if (!best || comparePaths(spot.path, best.path) > 0) best = spot;
+  }
+  return best;
+}
+
+function comparePaths(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return a.length - b.length;
+}
+
+/** Scroll the preview to a block and mark it for a moment. */
+function followTo(path: number[]): boolean {
+  if (!follow || !previewShown || state.handoutsOnly || state.mode === "source") return false;
+  if (performance.now() - lastManualPreview < MANUAL_PAUSE_MS) return false;
+  const spot = spotFor(state.chapterIndex, path);
+  if (!spot) return false;
+  const img = $("pages").querySelectorAll<HTMLImageElement>("img.page")[spot.page - 1];
+  if (!img || !img.naturalHeight) return false;
+  const pane = $("preview-pane");
+  const heightPt = img.naturalHeight * 0.75;
+  const widthPt = img.naturalWidth * 0.75;
+  const imgBox = img.getBoundingClientRect();
+  const paneBox = pane.getBoundingClientRect();
+  const y = imgBox.top - paneBox.top + pane.scrollTop + (spot.y / heightPt) * imgBox.height;
+  const x = imgBox.left - paneBox.left + pane.scrollLeft + (spot.x / widthPt) * imgBox.width;
+  previewScrollingByUs = performance.now();
+  pane.scrollTop = Math.max(0, y - pane.clientHeight / 3);
+  pane.querySelectorAll(".follow-mark").forEach((m) => m.remove());
+  const mark = document.createElement("div");
+  mark.className = "follow-mark";
+  mark.style.top = y + "px";
+  mark.style.left = Math.max(2, x - 10) + "px";
+  pane.append(mark);
+  setTimeout(() => mark.remove(), 1300);
+  return true;
+}
+
+function initFollow(): void {
+  follow = appValues()?.preview_follow !== false;
+  renderFollow();
+  $("zoom-follow").addEventListener("click", async () => {
+    follow = !follow;
+    renderFollow();
+    await call("setAppSettings", JSON.stringify({ preview_follow: follow }));
+  });
+  const pane = $("preview-pane");
+  // Scrolling or zooming the preview by hand pauses following for a moment.
+  const manual = () => { lastManualPreview = performance.now(); };
+  pane.addEventListener("wheel", manual, { passive: true });
+  pane.addEventListener("pointerdown", manual);
+  pane.addEventListener("keydown", manual);
+  pane.addEventListener("scroll", () => {
+    if (performance.now() - previewScrollingByUs > 150) manual();
+  }, { passive: true });
+}
+
 /** The element under a point of a page (positions in pt from the build). */
 function elementAt(page: number, xPt: number, yPt: number, widthPt: number): ElementSpot | null {
   const here = state.elements.filter((e) => e.page === page + 1 && e.y <= yPt + 2);
@@ -1830,6 +2217,9 @@ async function openPopoverAt(page: number, xPt: number, yPt: number, widthPt: nu
   if (state.mode === "source") await setMode("visual");
   const found = visual.blockAt(spot.path);
   if (!found) return false;
+  // F7.2 (issue #21): a click in the preview also moves the editor to the block.
+  lastManualPreview = performance.now();
+  visual.focusBlock(found.block);
   if (found.block.type !== "element") {
     // An inline element inside a paragraph: show the paragraph.
     visual.focusBlock(found.block);
@@ -1974,7 +2364,17 @@ function fillSettings(info: any, values: boolean): void {
   for (const option of info.themes ?? []) {
     const o = document.createElement("option");
     o.value = option.id;
-    o.textContent = option.general ? t("settings.themeGeneral", { name: option.name }) : option.name;
+    o.textContent = option.name; // F8 (#23): no "made for" hint
+    theme.append(o);
+  }
+  // F8 (#23): themes locked for this game system, greyed out with the reason;
+  // the adventure's own theme stays selected even when it has become locked.
+  for (const option of info.themesLocked ?? []) {
+    const o = document.createElement("option");
+    o.value = option.id;
+    o.disabled = option.id !== info.themeId;
+    o.className = "locked";
+    o.textContent = t("settings.themeLocked", { name: option.name, reason: option.reason });
     theme.append(o);
   }
   theme.value = info.themeId ?? "";
@@ -2373,6 +2773,7 @@ async function checkForUpdates(): Promise<void> {
   $("update-open").classList.add("hidden");
   $("update-install").classList.add("hidden");
   $("update-install-text").classList.add("hidden");
+  $("update-settings").classList.add("hidden");
   $("update-address").textContent = "";
   if (!dialog.open) dialog.showModal();
   updateWanted = true;
@@ -2391,6 +2792,7 @@ async function onUpdateChecked(r: any): Promise<void> {
     invalid: t("update.invalid"),
     unsigned: t("update.unsigned"),
     "no-key": t("update.noKey"),
+    blocked: t("update.blocked"),
   };
   const newer = r.state === "newer";
   let text = newer
@@ -2404,6 +2806,8 @@ async function onUpdateChecked(r: any): Promise<void> {
   $("update-open").classList.toggle("hidden", !(newer && r.download));
   $("update-open").classList.toggle("primary", !(newer && r.installable));
   $("update-install").classList.toggle("hidden", !(newer && r.installable));
+  // F25.1: connections are blocked; nothing was sent. A button leads to the setting.
+  $("update-settings").classList.toggle("hidden", r.state !== "blocked");
   $<HTMLButtonElement>("update-install").disabled = false;
   $("update-install-text").classList.add("hidden");
   // F22: the window shows which address it used.
@@ -2435,6 +2839,7 @@ async function installUpdate(): Promise<void> {
 
 function onUpdateInstalled(r: any): void {
   const reasons: Record<string, string> = {
+    blocked: t("update.blocked"),
     unreachable: t("update.installUnreachable"),
     runtime: t("update.needsInstaller"),
   };
@@ -2466,10 +2871,12 @@ async function goBack(): Promise<void> {
 /** F21.4: at first start Scriptorum asks once, with the answer off by default;
  * then the weekly check runs only if the author turned it on. */
 async function offerUpdateQuestion(): Promise<void> {
-  const reply = await call("updatePrompt");
-  if (reply?.ask) {
-    const answer = await askChoice(t("update.askText"), t("update.askYes"), "", t("update.askNo"));
-    await call("answerUpdatePrompt", answer === "yes");
+  // F25.2 (0.7.4): the question is no longer asked; a message is shown once instead.
+  const notice = await call("offlineNotice");
+  if (notice?.show) {
+    const answer = await askChoice(t("connections.offlineNotice"), t("connections.openSettings"), "", t("dialog.ok"));
+    await call("offlineNoticeSeen");
+    if (answer === "yes") await openSettingsWindow("application");
   }
   await call("weeklyUpdateCheck");
 }
@@ -2643,6 +3050,15 @@ async function boot(): Promise<void> {
       updateStatus();
       updateScenePanel(state.line);
       if (state.mode === "hybrid" && block && place) showHybrid({ block, place });
+      // F7.2 (issue #21): the preview follows the block that has the cursor.
+      if (block && place) {
+        const path = visual.pathOf(place);
+        const key = state.chapterIndex + ":" + path.join(".");
+        if (key !== lastFollowed) {
+          lastFollowed = key;
+          followTo(path);
+        }
+      }
     },
     openInsertMenu: (anchor, place, kinds) => showPopup(anchor, groupedInsertItems(kinds, (kind, variant) => insert(kind, place, variant))),
     openContextMenu: (event, place) => openContextMenu(event, place),
@@ -2663,7 +3079,7 @@ async function boot(): Promise<void> {
       const result = await call("imageUrl", path);
       return result?.ok ? result.url : null;
     },
-    afterRender: () => spelling?.schedule(200),
+    afterRender: () => { spelling?.schedule(200); placeSuggestions(); },
     codexEntries: () => codex.entries,
     typesWithCard: () => codex.types.filter((x) => x.card).map((x) => x.id),
     maps: () => codex.maps,
@@ -2703,11 +3119,12 @@ async function boot(): Promise<void> {
     adventureName: () => (state.info?.hasDocument ? state.info.title : null),
     addFont: () => addFont(),
     onStartMode: () => undefined,
+    extensionsChanged: () => loadExtensions(),
   });
   setChipLabeler((kind, args) => {
     if (kind === "footnote") {
       // F7.7 (M5): a footnote chip shows the start of its text.
-      const text = /text:\s*"((?:[^"\\]|\\.)*)"/.exec(args)?.[1] ?? "";
+      const text = inlineToPlain(footnoteText("#footnote(" + args + ")"));
       return "\u2020 " + (text.length > 28 ? text.slice(0, 28) + "\u2026" : text);
     }
     if (kind !== "mention" && kind !== "see") return null;
@@ -2852,6 +3269,7 @@ async function boot(): Promise<void> {
   $("tb-fullscreen").addEventListener("click", () => setFullScreen(!fullScreen));
   initAbout();
   initAppZoom();
+  initFollow();
   on("fullScreenChanged", (on: boolean) => {
     fullScreen = !!on;
     renderFullScreen();
@@ -2878,6 +3296,14 @@ async function boot(): Promise<void> {
   on("suggestions", onSuggestions);
   on("selfTestFinished", onSelfTest);
   on("updateChecked", onUpdateChecked);
+  // F25 (0.7.4): extensions.
+  on("extensionNotice", (n: any) => onExtensionNotice(n));
+  $("lt-scene").addEventListener("click", () => showLowerTab("scene"));
+  $("lt-extensions").addEventListener("click", () => showLowerTab("extensions"));
+  $("update-settings").addEventListener("click", () => {
+    $<HTMLDialogElement>("update-dialog").close();
+    openSettingsWindow("application");
+  });
   $("update-close").addEventListener("click", () => $<HTMLDialogElement>("update-dialog").close());
   $("update-open").addEventListener("click", () => call("openDownloadPage"));
   $("update-install").addEventListener("click", () => installUpdate());
@@ -2894,6 +3320,7 @@ async function boot(): Promise<void> {
   await refresh();
   state.ready = true;
   await call("uiReady");
+  await loadExtensions();   // F25.10: the switched-on extensions' items
   await showStartupReport();
   await offerRecovery();
   await loadVersionInfo();
@@ -2902,6 +3329,10 @@ async function boot(): Promise<void> {
 
 // Hooks the automated interface tests use (tests/test_ui_smoke.py).
 (window as any).__scriptorum = {
+  // F25 (0.7.4): the extensions' items, for the tests.
+  extensions: { run: runExtension, load: loadExtensions, undoLabel, list: () => state.extensions,
+    tab: () => extTab, showTab: showLowerTab, renderTab: renderExtTab },
+  openGuide,
   state: () => ({
     ready: state.ready,
     mode: state.mode,
@@ -2916,6 +3347,7 @@ async function boot(): Promise<void> {
     words: state.chapter?.words ?? 0,
     info: state.info,
     tabs: state.tabs,
+    doc: visual.current(),
     status: ["st-line", "st-page", "st-words", "st-problems", "st-export"].map((id) => $(id).textContent),
   }),
   flush,
@@ -2975,6 +3407,7 @@ async function boot(): Promise<void> {
   switchTab,
   closeTab,
   kindOf,
+  focusedKind: () => { const p = visual.focused(); const b = p ? p.list.blocks[p.index] : null; return b ? kindOf(b) + (b.type === "list" ? (b.ordered ? ":ordered" : ":bulleted") : "") : null; },
   isDoc,
   dropImage: async (name: string, base64: string) => {
     const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));

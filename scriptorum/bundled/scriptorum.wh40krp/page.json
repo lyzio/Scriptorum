@@ -1,0 +1,13 @@
+{
+  "paper": "a4",
+  "columns": 2,
+  "column_gap_mm": 7,
+  "margin_mm": {
+    "top": 22,
+    "bottom": 24,
+    "x": 17
+  },
+  "page_numbers": true,
+  "font": "Spectral",
+  "font_size_pt": 9.5
+}

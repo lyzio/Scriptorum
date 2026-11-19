@@ -543,7 +543,8 @@
     const face = /face:\s*(\d+)/.exec(args);
     const custom = m && chipLabeler ? chipLabeler(m[1], args) : null;
     const label = custom ?? (face ? "\u2684 " + face[1] : "\u2684 " + (value ? value[1] : m ? m[1] : ""));
-    return '<span class="ichip" contenteditable="false" data-src="' + escapeAttr(source2) + '">' + escapeHtml(label) + "</span>";
+    const kind = m ? " " + m[1] : "";
+    return '<span class="ichip' + kind + '" contenteditable="false" data-src="' + escapeAttr(source2) + '">' + escapeHtml(label) + "</span>";
   }
   function escapeAttr(text) {
     return escapeHtml(text).replace(/"/g, "&quot;");
@@ -758,6 +759,70 @@
       this.actKey = 0;
       this.sceneKey = 0;
       root.addEventListener("keydown", (e) => this.onKey(e));
+      root.addEventListener("click", (e) => {
+        const chip = e.target.closest(".ichip");
+        if (!chip || this.readOnly || !(chip.dataset.src ?? "").startsWith("#footnote(")) return;
+        e.preventDefault();
+        this.editFootnote(chip);
+      });
+    }
+    /** F7.7 (issue #4): a small box with the footnote's text, bold and italic
+     * included. Enter or a click outside saves it as one undo step; Esc
+     * cancels. An emptied box changes nothing (Delete removes a footnote). */
+    editFootnote(chip) {
+      document.querySelector(".footnote-edit")?.remove();
+      const host = chip.closest("[contenteditable=true]");
+      if (!host) return;
+      const before = footnoteText(chip.dataset.src ?? "");
+      const pop = el("div", "footnote-edit", { role: "dialog" });
+      const label = el("div", "footnote-edit-label");
+      label.textContent = t("editor.footnoteLabel");
+      const box = el("div", "rich footnote-text", { contenteditable: "true", role: "textbox" });
+      box.setAttribute("aria-label", t("editor.footnoteLabel"));
+      box.innerHTML = inlineToHtml(before);
+      pop.append(label, box);
+      document.body.append(pop);
+      const r = chip.getBoundingClientRect();
+      pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + "px";
+      pop.style.top = (r.bottom + 6 + pop.offsetHeight > innerHeight ? Math.max(8, r.top - pop.offsetHeight - 6) : r.bottom + 6) + "px";
+      let done = false;
+      const close = (save2) => {
+        if (done) return;
+        done = true;
+        document.removeEventListener("pointerdown", outside, true);
+        pop.remove();
+        const markup = htmlToInline(box).replace(/\s*\n+\s*/g, " ").trim();
+        if (!save2 || !markup || markup === before || !chip.isConnected) return;
+        const holder = document.createElement("span");
+        holder.innerHTML = chipHtml(`#footnote(text: ${JSON.stringify(markup)})`);
+        chip.replaceWith(holder.firstChild);
+        host.dispatchEvent(new Event("input", { bubbles: true }));
+        this.hooks.onCommit(this.doc);
+      };
+      const outside = (e) => {
+        if (!pop.contains(e.target)) close(true);
+      };
+      box.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          close(true);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          close(false);
+        }
+        e.stopPropagation();
+      });
+      box.addEventListener("paste", (e) => {
+        e.preventDefault();
+        document.execCommand("insertText", false, (e.clipboardData?.getData("text/plain") ?? "").replace(/\s+/g, " "));
+      });
+      setTimeout(() => document.addEventListener("pointerdown", outside, true), 0);
+      box.focus();
+      const range = document.createRange();
+      range.selectNodeContents(box);
+      range.collapse(false);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
     }
     setDefinitions(defs2) {
       this.defs = new Map(defs2.map((d) => [d.id, d]));
@@ -892,10 +957,11 @@
       if (chain.length === 0) kinds.push("heading");
       const owner = chain[chain.length - 1];
       if (!owner || owner.type === "element" && owner.kind === "scene") kinds.push(...SUB_HEADINGS);
-      kinds.push("table", "image");
+      kinds.push("list", "table", "image");
       for (const def of this.defs.values()) {
         if (def.id === "scene" && chain.length > 0) continue;
         if (def.onlyInside && def.onlyInside.length) continue;
+        if (def.offered === false) continue;
         kinds.push(def.id);
       }
       return kinds;
@@ -905,7 +971,7 @@
       return owner ? this.defs.get(owner.kind)?.allow ?? null : null;
     }
     renderBlock(block, place, allow) {
-      const wrap = el("section", "blk blk-" + block.type);
+      const wrap = el("section", "blk blk-" + (block.type === "list" ? "listing" : block.type));
       if (block.line) wrap.dataset.line = String(block.line);
       if (place.chain.length === 0) {
         let key = "";
@@ -976,6 +1042,8 @@
         note.textContent = t("editor.locked");
         pre.tabIndex = 0;
         wrap.append(note, pre);
+      } else if (block.type === "list") {
+        wrap.append(this.renderListBlock(block, place));
       } else if (block.type === "table") {
         wrap.append(this.renderTable(block, place));
       } else if (block.type === "image") {
@@ -1527,6 +1595,120 @@
       return path;
     }
     // --- tables (F4.5) and images (F4.6) ---------------------------------------
+    /** F4 (0.7.0 step 3, issue #5): a bulleted or numbered list, one line to
+     * type in per item. Enter adds an item after the cursor's; Enter on an
+     * empty item ends the list with a paragraph after it; Tab and Shift+Tab
+     * change an item's level (never more than one deeper than the item above,
+     * at most three levels); Backspace at the start of an empty item removes it. */
+    renderListBlock(block, place) {
+      const box = el("div", "list-edit " + (block.ordered ? "ordered" : "bulleted"), { role: "list" });
+      const items = block.items ?? (block.items = [{ level: 0, text: "" }]);
+      const counters = [0, 0, 0];
+      items.forEach((item, i) => {
+        const level = Math.max(0, Math.min(2, item.level));
+        counters[level] += 1;
+        for (let deeper = level + 1; deeper < 3; deeper++) counters[deeper] = 0;
+        const row2 = el("div", "list-item level-" + level, { role: "listitem" });
+        const mark = el("span", "list-mark");
+        mark.textContent = block.ordered ? counters[level] + "." : ["\u2022", "\u2013", "\u25E6"][level];
+        mark.setAttribute("aria-hidden", "true");
+        const line = el("div", "rich list-text", { contenteditable: this.readOnly ? "false" : "true", role: "textbox" });
+        line.setAttribute("aria-label", t("editor.listItem"));
+        line.dataset.item = String(i);
+        line.innerHTML = inlineToHtml(item.text);
+        line.addEventListener("input", () => {
+          item.text = htmlToInline(line).replace(/\n+/g, " ");
+          this.changed(block, place.chain);
+        });
+        line.addEventListener("paste", (e) => {
+          e.preventDefault();
+          const text = (e.clipboardData?.getData("text/plain") ?? "").replace(/\r\n?/g, "\n").replace(/\n+/g, " ");
+          document.execCommand("insertText", false, text);
+        });
+        line.addEventListener("keydown", (e) => this.listKey(e, block, place, i, line));
+        row2.append(mark, line);
+        box.append(row2);
+      });
+      return box;
+    }
+    listKey(e, block, place, i, line) {
+      if (this.readOnly || e.altKey || e.ctrlKey || e.metaKey) return;
+      const items = block.items;
+      const item = items[i];
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (!htmlToInline(line).trim()) {
+          items.splice(i, 1);
+          const paragraph = { type: "paragraph", text: "" };
+          const after = items.slice(i);
+          const at = place.list.blocks.indexOf(block);
+          if (items.length === 0) place.list.blocks.splice(at, 1, paragraph);
+          else if (after.length) {
+            items.splice(i);
+            const rest = { type: "list", ordered: block.ordered, items: after };
+            place.list.blocks.splice(at + 1, 0, paragraph, rest);
+          } else place.list.blocks.splice(at + 1, 0, paragraph);
+          delete block.raw;
+          this.commit(place.chain);
+          this.focusBlock(paragraph);
+          return;
+        }
+        const sel = getSelection();
+        let tail = "";
+        if (sel && sel.rangeCount && line.contains(sel.anchorNode)) {
+          const range = sel.getRangeAt(0).cloneRange();
+          range.selectNodeContents(line);
+          range.setStart(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
+          const holder = document.createElement("div");
+          holder.append(range.extractContents());
+          tail = htmlToInline(holder);
+          item.text = htmlToInline(line);
+        }
+        items.splice(i + 1, 0, { level: item.level, text: tail });
+        delete block.raw;
+        this.commit(place.chain);
+        this.focusListItem(block, i + 1, false);
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        const above = i > 0 ? items[i - 1].level : -1;
+        const level = e.shiftKey ? Math.max(0, item.level - 1) : Math.min(2, above + 1, item.level + 1);
+        if (level === item.level) return;
+        const delta = level - item.level;
+        let end = i + 1;
+        while (end < items.length && items[end].level > item.level) end++;
+        for (let k = i; k < end; k++) items[k].level = Math.max(0, Math.min(2, items[k].level + delta));
+        delete block.raw;
+        this.commit(place.chain);
+        this.focusListItem(block, i, true);
+      } else if (e.key === "Backspace" && !htmlToInline(line).trim() && items.length > 1) {
+        e.preventDefault();
+        items.splice(i, 1);
+        delete block.raw;
+        this.commit(place.chain);
+        this.focusListItem(block, Math.max(0, i - 1), true);
+      }
+    }
+    /** Put the cursor in an item of a list, at its start or its end. */
+    focusListItem(block, index, atEnd) {
+      const wrapper = this.blockSections()[this.order().indexOf(block)];
+      const line = wrapper?.querySelector(`.list-text[data-item="${index}"]`);
+      if (!line) return;
+      line.focus();
+      const range = document.createRange();
+      range.selectNodeContents(line);
+      range.collapse(!atEnd);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
+    }
+    /** F4 (issue #5): switch a list between bulleted and numbered; one undo step. */
+    setListKind(place, ordered) {
+      const block = place.list.blocks[place.index];
+      if (!block || block.type !== "list" || !!block.ordered === ordered) return;
+      block.ordered = ordered;
+      delete block.raw;
+      this.commit(place.chain);
+      this.focusListItem(block, 0, true);
+    }
     renderTable(block, place) {
       const box = el("div", "tbl-edit");
       const table2 = el("table", "tbl");
@@ -1680,6 +1862,7 @@
       if (kind === "heading") return { type: "heading", level: 1, text: "" };
       if (SUB_HEADINGS.includes(kind)) return { type: "heading", level: Number(kind.slice(-1)), text: "" };
       if (kind === "table") return { type: "table", columns: 2, header: ["", ""], rows: [["", ""]] };
+      if (kind === "list") return { type: "list", ordered: false, items: [{ level: 0, text: "" }] };
       const def = this.defs.get(kind);
       const block = { type: "element", kind, fields: {}, variant: def.defaultVariant, new_page: null };
       for (const f of def.fields) {
@@ -2124,11 +2307,11 @@
     /** The kinds this block can be converted to where it stands. */
     convertKinds(place) {
       const block = place.list.blocks[place.index];
-      if (!block || block.type === "locked" || block.type === "table" || block.type === "image") return [];
+      if (!block || block.type === "locked" || block.type === "table" || block.type === "image" || block.type === "list") return [];
       const current2 = kindOf(block);
       const kinds = this.kindsFor(place.list, place.chain, this.allowOf(place.chain));
       if (this.splitsScene(place) && !kinds.includes("scene")) kinds.splice(kinds.indexOf("heading") + 1 || 1, 0, "scene");
-      return kinds.filter((k) => k !== current2 && k !== "table" && k !== "image" && this.defs.get(k)?.category !== "layout");
+      return kinds.filter((k) => k !== current2 && k !== "table" && k !== "image" && k !== "list" && this.defs.get(k)?.category !== "layout");
     }
     /** A block directly inside a top-level scene can become a new scene that
      * starts after it (pasted text: "Scene 2: …" inside scene 1). */
@@ -2150,10 +2333,29 @@
         return;
       }
       const block = place.list.blocks[place.index];
-      const text = textOf(block, this.defs.get(block.kind ?? ""));
+      let text = textOf(block, this.defs.get(block.kind ?? ""));
       const children = isDoc(block.body) ? block.body.blocks : [];
       const target = this.newBlock(kind);
       target.sep = block.sep;
+      const pasted = target.type === "element" ? this.takeLabels(text, kind) : null;
+      const knowledge = [];
+      if (pasted) {
+        text = pasted.text;
+        if (pasted.variant) target.variant = pasted.variant;
+        if (pasted.field) this.fillPastedField(target, pasted.field[0], pasted.field[1]);
+        while (place.list.blocks[place.index + 1]?.type === "paragraph") {
+          const next = place.list.blocks[place.index + 1];
+          const known = this.takeKnowledge(next.text ?? "", kind);
+          if (known) {
+            knowledge.push(known);
+            place.list.blocks.splice(place.index + 1, 1);
+            continue;
+          }
+          const line = this.takeLabels(next.text ?? "", kind);
+          if (!line?.field || line.field[0] === this.titleField(kind) || !this.fillPastedField(target, line.field[0], line.field[1])) break;
+          place.list.blocks.splice(place.index + 1, 1);
+        }
+      }
       const singleLine = !text.includes("\n") && inlineToPlain(text).length <= 80;
       const release = [];
       if (target.type === "paragraph") {
@@ -2203,10 +2405,133 @@
           release.push(...children);
         }
       }
+      if (knowledge.length && isDoc(target.body)) {
+        target.body.blocks.push(...knowledge);
+        target.body.blocks.forEach((b, i) => {
+          if (i === 0) delete b.sep;
+        });
+      }
       release.forEach((b) => delete b.sep);
       place.list.blocks.splice(place.index, 1, target, ...release);
       this.commit(place.chain);
       this.focusBlock(target);
+    }
+    /** F4 (issue #2): the words a label may use for this element, its
+     * variants and its fields: the element's own paste labels (English and
+     * Swedish) plus the names the interface shows. */
+    labelWords(kind) {
+      const def = this.defs.get(kind);
+      const own = def.pasteLabels ?? {};
+      const names = [def.name, ...own.names ?? []];
+      const variants = def.variants.map((v) => [v.id, [v.label, ...own.variants?.[v.id] ?? []]]);
+      const fields = def.fields.filter((f) => !f.hidden && !f.legacy && ["text", "rich", "codex", "codex-list"].includes(f.kind)).map((f) => [f.name, [f.label, ...own.fields?.[f.name] ?? []]]);
+      return { names, variants, fields };
+    }
+    titleField(kind) {
+      return this.defs.get(kind)?.fields.find((f) => f.required && f.kind === "text")?.name;
+    }
+    /** The label at the start of one line of markup, if any: removed with a
+     * leading list marker. A name of the element or a variant goes; a field
+     * label gives its field the rest of the line. A label only counts at the
+     * start, followed by a colon (or in brackets), so "Note: …" in the middle
+     * of a sentence stays. */
+    takeLabels(markup, kind) {
+      const words = this.labelWords(kind);
+      const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[- ]/g, "[- ]");
+      const marker = /^\s*(?:\\?[-*+\u2022]|\d+\\?[.)])\s+/;
+      let rest = markup.replace(marker, "");
+      const changedByMarker = rest !== markup;
+      const tryLabel = (list) => {
+        const alt = list.filter(Boolean).map(esc).join("|");
+        if (!alt) return null;
+        const re = new RegExp("^\\s*(?:\\\\?\\[\\s*(?:" + alt + ")\\s*\\\\?\\]\\s*:?|(?:" + alt + ")(?:\\s+\\d+)?(?:\\s*\\([^)]*\\))?\\s*:)\\s*", "i");
+        const m = re.exec(rest);
+        return m ? rest.slice(m[0].length) : null;
+      };
+      let variant;
+      let field;
+      let found = false;
+      for (let round = 0; round < 2; round++) {
+        const named = tryLabel(words.names);
+        if (named !== null) {
+          rest = named;
+          found = true;
+          continue;
+        }
+        const v = words.variants.find(([, list]) => tryLabel(list) !== null);
+        if (v && !variant) {
+          rest = tryLabel(v[1]);
+          variant = v[0];
+          found = true;
+          continue;
+        }
+        break;
+      }
+      if (!variant && !found) {
+        const f = words.fields.find(([, list]) => tryLabel(list) !== null);
+        if (f) {
+          const value = tryLabel(f[1]).trim();
+          if (f[0] === this.titleField(kind)) {
+            rest = value;
+            found = true;
+          } else {
+            field = [f[0], value];
+            rest = "";
+            found = true;
+          }
+        }
+      }
+      if (!found && !changedByMarker) return null;
+      return { text: rest.trim(), variant, field };
+    }
+    /** F4 (0.7.7, issue #33): a pasted line that says what a person knows,
+     * such as "She knows (public): No boat has gone out.", as an Information
+     * item for a card whose element lists those words (paste labels
+     * "knows") and may hold Information. The word in brackets names the
+     * variant, as in a pasted Information label; without it the item gets the
+     * default variant. The label, the brackets and the colon go. */
+    takeKnowledge(markup, kind) {
+      const def = this.defs.get(kind);
+      const words = def?.pasteLabels?.knows ?? [];
+      if (!words.length || !this.defs.has("information") || def?.allow && !def.allow.includes("information")) return null;
+      const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[- ]/g, "[- ]");
+      const rest = markup.replace(/^\s*(?:\\?[-*+\u2022]|\d+\\?[.)])\s+/, "");
+      const re = new RegExp("^\\s*(?:" + words.map(esc).join("|") + ")\\s*(?:\\(\\s*([^)]*?)\\s*\\))?\\s*:\\s*", "i");
+      const m = re.exec(rest);
+      if (!m) return null;
+      const item = this.newBlock("information");
+      const said = (m[1] ?? "").toLowerCase();
+      if (said) {
+        const v = this.labelWords("information").variants.find(([id2, list]) => [id2, ...list].some((w) => w.toLowerCase() === said));
+        if (v) item.variant = v[0];
+      }
+      item.body = rest.slice(m[0].length).trim();
+      return item;
+    }
+    /** Put a pasted value into a field (issue #2). A codex field links the
+     * entries of those names when every name is in the codex; otherwise the
+     * text goes into its older text field of the same name (Location, People
+     * present, Linked to), which the codex upgrade offers to link later. */
+    fillPastedField(target, name, value) {
+      const def = this.defs.get(target.kind);
+      const field = def.fields.find((f) => f.name === name);
+      if (!field || !value) return false;
+      target.fields = target.fields ?? {};
+      if (field.kind === "text") target.fields[name] = inlineToPlain(value);
+      else if (field.kind === "rich") target.fields[name] = value;
+      else {
+        const names = inlineToPlain(value).split(/\s*(?:,|;|\band\b|\boch\b)\s*/i).map((n) => n.trim()).filter(Boolean);
+        const entries = this.hooks.codexEntries().filter((e) => !field.types || field.types.includes(e.type));
+        const ids = names.map((n) => entries.find((e) => e.title.toLowerCase() === n.toLowerCase())?.id);
+        if (names.length && ids.every(Boolean)) {
+          target.fields[name] = field.kind === "codex" ? ids[0] : ids;
+        } else {
+          const legacy = def.fields.find((f) => f.legacy && f.kind === "text" && f.label === field.label);
+          if (!legacy) return false;
+          target.fields[legacy.name] = inlineToPlain(value);
+        }
+      }
+      return true;
     }
     // --- keyboard and focus ---------------------------------------------------------
     onKey(e) {
@@ -2270,6 +2595,15 @@
   };
   function escapeCell(text) {
     return escapeInline(text);
+  }
+  function footnoteText(source2) {
+    const m = /text:\s*"((?:[^"\\]|\\.)*)"/.exec(source2);
+    if (!m) return "";
+    try {
+      return JSON.parse('"' + m[1] + '"');
+    } catch {
+      return m[1];
+    }
   }
   function textOf(block, def) {
     if (block.type === "paragraph" || block.type === "heading") return block.text ?? "";
@@ -2720,6 +3054,7 @@
     if (section2 === "application") renderApplication();
     else if (section2 === "colours") renderColours();
     else if (section2 === "modules") renderModules();
+    else if (section2 === "extensions") await renderExtensions();
     else if (section2 === "adventure") await ctx.fillAdventure();
   }
   function row(label, control) {
@@ -2779,6 +3114,15 @@
     open.addEventListener("click", () => call("openCrashLogFolder"));
     logs.append(h2("span", void 0, t("settings.app.crashLogs")), h2("code", void 0, app.crashLogs), open);
     page.append(logs);
+    page.append(h2("h3", void 0, t("settings.app.connections")));
+    const blocked = h2("input");
+    blocked.type = "checkbox";
+    blocked.id = "app-connectionsBlocked";
+    blocked.checked = v.connections_blocked !== false;
+    blocked.addEventListener("change", () => setApp({ connections_blocked: blocked.checked }));
+    const blockedLabel = h2("label", "settings-check");
+    blockedLabel.append(blocked, h2("span", void 0, t("settings.app.blockConnections")));
+    page.append(blockedLabel, h2("p", "settings-note", t("settings.app.blockConnectionsNote")));
     page.append(h2("h3", void 0, t("settings.app.updates")));
     const weekly = h2("input");
     weekly.type = "checkbox";
@@ -3046,6 +3390,11 @@
   async function installModule(path) {
     setModuleStatus(t("settings.modules.checking"));
     const reply = path ? await call("installModulePath", path) : await call("installModuleDialog");
+    if (reply?.extension) {
+      setModuleStatus("");
+      await installExtension(reply.inspect, reply.path);
+      return;
+    }
     await moduleReply(reply, (r) => t(
       r.status === "already" ? "settings.modules.installed.already" : "settings.modules.installed.done",
       { name: r.module.name, version: r.module.version }
@@ -3128,6 +3477,170 @@
     }
     page.append(table2);
   }
+  var extensionsInfo = null;
+  var extensionStatus = null;
+  function setExtensionStatus(text, warn3 = false) {
+    extensionStatus = text ? { text, warn: warn3 } : null;
+    const note = document.getElementById("ext-status");
+    if (note) {
+      note.textContent = text;
+      note.classList.toggle("warn", warn3);
+    }
+  }
+  function askConsent(info2) {
+    return new Promise((resolve2) => {
+      const dialog = $3("ext-consent");
+      $3("ext-consent-title").textContent = t(
+        info2.installedVersion ? "ext.consent.updateTitle" : "ext.consent.title",
+        { name: info2.name, version: info2.version }
+      );
+      $3("ext-consent-about").textContent = [(info2.authors ?? []).join(", "), info2.licence, info2.description].filter(Boolean).join(" \xB7 ");
+      const verified = $3("ext-consent-verified");
+      verified.textContent = t(info2.verified ? "ext.verified" : "ext.unverified");
+      verified.classList.toggle("unverified", !info2.verified);
+      const added = new Set(info2.added ?? []);
+      $3("ext-consent-lead").textContent = t(info2.installedVersion ? "ext.consent.leadUpdate" : "ext.consent.lead");
+      const list = $3("ext-consent-needs");
+      list.textContent = "";
+      for (const need of info2.needs ?? []) {
+        const li = h2("li", added.has(need) ? "added" : void 0, need);
+        if (added.has(need)) li.append(" ", h2("em", void 0, t("ext.consent.new")));
+        list.append(li);
+      }
+      const finish = (yes) => {
+        $3("ext-consent-ok").onclick = null;
+        $3("ext-consent-cancel").onclick = null;
+        dialog.onclose = null;
+        if (dialog.open) dialog.close();
+        resolve2(yes);
+      };
+      $3("ext-consent-ok").onclick = () => finish(true);
+      $3("ext-consent-cancel").onclick = () => finish(false);
+      dialog.onclose = () => finish(false);
+      dialog.showModal();
+    });
+  }
+  async function installExtension(info2, path) {
+    if (!info2?.ok) {
+      setExtensionStatus(info2?.error ?? "", true);
+      return;
+    }
+    if (info2.askConsent && !await askConsent(info2)) {
+      setExtensionStatus(t("ext.notInstalled", { name: info2.name }));
+      if (currentSection === "extensions") await renderExtensions(false);
+      return;
+    }
+    const reply = await call("installExtension", path, true);
+    if (reply?.ok === false) {
+      setExtensionStatus(reply.error ?? "", true);
+    } else {
+      extensionsInfo = reply;
+      setExtensionStatus(t("ext.installed", { name: reply.installed.name, version: reply.installed.version }));
+    }
+    await ctx.extensionsChanged();
+    if (currentSection !== "extensions") await showSection("extensions");
+    else await renderExtensions(false);
+  }
+  async function installExtensionFile(path) {
+    setExtensionStatus(t("settings.modules.checking"));
+    const reply = path ? await call("inspectExtension", path) : await call("inspectExtensionDialog");
+    if (reply?.cancelled) {
+      setExtensionStatus("");
+      return;
+    }
+    if (reply?.ok && !reply.extension) {
+      setExtensionStatus(t("ext.notExtension"), true);
+      return;
+    }
+    await installExtension(reply, reply?.path ?? path);
+  }
+  async function extensionReply(reply) {
+    if (reply?.ok === false) setExtensionStatus(reply.error ?? "", true);
+    else extensionsInfo = reply;
+    await ctx.extensionsChanged();
+    await renderExtensions(false);
+  }
+  async function renderExtensions(load = true) {
+    if (load || !extensionsInfo) extensionsInfo = await call("extensionList");
+    const info2 = extensionsInfo;
+    const page = $3("sp-extensions");
+    page.textContent = "";
+    page.append(h2("h3", void 0, t("settings.section.extensions")), h2("p", "settings-note", t("ext.note")));
+    const tools = h2("div", "module-tools");
+    const install = h2("button", "primary", t("ext.installButton"));
+    install.type = "button";
+    install.id = "ext-install";
+    install.addEventListener("click", () => installExtensionFile());
+    const status = h2("p", "module-status" + (extensionStatus?.warn ? " warn" : ""), extensionStatus?.text ?? "");
+    status.id = "ext-status";
+    status.setAttribute("role", "status");
+    tools.append(install, status);
+    page.append(tools);
+    if (info2?.blocked) page.append(h2("p", "settings-note", t("ext.blockedNote")));
+    if (!info2?.extensions?.length) {
+      const none = h2("p", "settings-note", t("ext.none"));
+      none.id = "ext-none";
+      page.append(none);
+      return;
+    }
+    for (const e of info2.extensions) {
+      const card = h2("div", "ext-card");
+      card.dataset.extension = e.id;
+      const head = h2("div", "ext-card-head");
+      const title = h2("div", "module-name", `${e.name} ${e.version}`);
+      title.append(h2("span", "module-tag" + (e.verified ? "" : " warn"), t(e.verified ? "ext.tag.verified" : "ext.tag.unverified")));
+      if (e.needsNetwork) title.append(h2("span", "module-tag", t("ext.tag.needsNetwork")));
+      const on4 = h2("input");
+      on4.type = "checkbox";
+      on4.dataset.action = "on";
+      on4.checked = !!e.on;
+      on4.addEventListener("change", async () => extensionReply(await call("setExtensionOn", e.id, on4.checked)));
+      const onLabel = h2("label", "settings-check");
+      onLabel.append(on4, h2("span", void 0, t("ext.on")));
+      head.append(title, onLabel);
+      card.append(head);
+      card.append(h2("div", "module-about", [e.authors?.join(", "), e.licence, e.id].filter(Boolean).join(" \xB7 ")));
+      if (e.description) card.append(h2("div", "module-about module-desc", e.description));
+      if (!e.verified) card.append(h2("p", "settings-note warn", t("ext.unverified")));
+      const needs = h2("ul", "ext-needs");
+      for (const need of e.needs ?? []) needs.append(h2("li", void 0, need));
+      card.append(h2("div", "module-about", t("ext.needsTitle")), needs);
+      for (const s of e.settings ?? []) {
+        let control;
+        if (s.kind === "choice") {
+          control = select(s.options.map((o) => [o, o]), s.value, async (x2) => extensionReply(await call("setExtensionSetting", e.id, s.id, x2)));
+        } else {
+          const input = h2("input");
+          input.type = s.kind === "secret" ? "password" : "text";
+          input.spellcheck = false;
+          input.autocomplete = "off";
+          if (s.kind === "secret") input.placeholder = t(s.set ? "ext.secretSet" : "ext.secretNotSet");
+          else input.value = s.value ?? "";
+          input.addEventListener("change", async () => {
+            const value = input.value;
+            if (s.kind === "secret") input.value = "";
+            await extensionReply(await call("setExtensionSetting", e.id, s.id, value));
+          });
+          control = input;
+        }
+        control.dataset.setting = s.id;
+        card.append(row(s.label, control));
+        if (s.kind === "secret") card.append(h2("p", "settings-note", t(info2.keychain ? "ext.secretKeychain" : "ext.secretFile")));
+        if (s.note) card.append(h2("p", "settings-note", s.note));
+      }
+      const actions = h2("div", "module-actions");
+      const remove2 = h2("button", void 0, t("settings.modules.remove"));
+      remove2.type = "button";
+      remove2.dataset.action = "remove";
+      remove2.addEventListener("click", async () => {
+        if (await ask(t("ext.confirmRemove", { name: e.name }), t("settings.modules.remove"), "", t("dialog.cancel")) !== "yes") return;
+        await extensionReply(await call("removeExtension", e.id));
+      });
+      actions.append(remove2);
+      card.append(actions);
+      page.append(card);
+    }
+  }
   function appValues() {
     return app?.values ?? null;
   }
@@ -3152,6 +3665,8 @@
     editing: () => editing,
     editingDirty: () => editingDirty,
     installModule,
+    installExtensionFile,
+    extensions: () => extensionsInfo,
     saveModule: (key, path) => saveModule(app.modules.find((m) => `${m.id}@${m.version}` === key), path),
     moduleStatus: () => moduleStatus,
     startEditing: (name) => {
@@ -33806,10 +34321,11 @@
     const ro = api2.readOnly();
     body.append(h3("div", "entry-type", type?.name ?? info2.type));
     const form = h3("div", "entry-form");
+    const firstLink = (type?.fields ?? []).find((f) => f.kind === "link")?.name;
     for (const field of type?.fields ?? []) {
       const row2 = h3("label", "field entry-field field-" + field.name);
       row2.append(h3("span", "field-label", field.label + (field.required ? " *" : "")));
-      row2.append(entryControl(id2, field, info2.fields[field.name], ro));
+      row2.append(entryControl(id2, field, info2.fields[field.name], ro, field.name === firstLink ? info2.linkedFrom ?? [] : []));
       form.append(row2);
     }
     const folder = h3("label", "field entry-field");
@@ -33881,7 +34397,7 @@
     renderCodexPanel();
     if (keepScroll) $5("worldview-body").scrollTop = scroll;
   }
-  function entryControl(id2, field, value, ro) {
+  function entryControl(id2, field, value, ro, linkedFrom = []) {
     const set2 = (v) => queueEntry(id2, { fields: { [field.name]: v } });
     switch (field.kind) {
       case "rich": {
@@ -33928,11 +34444,28 @@
           }));
           row2.append(chip);
         }
+        for (const other of linkedFrom) {
+          const chip = h3("span", "codex-chip linked-from");
+          const name = button(other.title, "codex-chip-name", () => openEntry(other.id));
+          chip.title = t("codex.linkFromOther", { name: other.title });
+          chip.append(name, h3("span", "linked-from-mark", t("codex.fromOther")));
+          if (!ro) chip.append(button("\xD7", "icon-btn", async () => {
+            await flushEntry();
+            const info2 = await call("entry", other.id);
+            if (!info2?.ok) return;
+            const stored = info2.fields?.[other.field];
+            const list = Array.isArray(stored) ? stored : stored ? [stored] : [];
+            queueEntry(other.id, { fields: { [other.field]: list.filter((x2) => x2 !== id2) } });
+            await flushEntry();
+            await openEntry(id2, true);
+          }));
+          row2.append(chip);
+        }
         if (!ro) {
           const select2 = h3("select", "field-input field-codex");
           select2.append(h3("option", "", t("editor.addEntry")));
           select2.firstChild.value = "";
-          for (const e of codex.entries.filter((e2) => e2.id !== id2 && !ids.includes(e2.id))) {
+          for (const e of codex.entries.filter((e2) => e2.id !== id2 && !ids.includes(e2.id) && !linkedFrom.some((o) => o.id === e2.id))) {
             const opt = h3("option", "", `${e.title} (${typeOf(e.type)?.name ?? e.type})`);
             opt.value = e.id;
             select2.append(opt);
@@ -34700,6 +35233,10 @@
     // M3: history positions at which a codex or map change was made, so Undo
     // undoes it in the core (F4.12).
     worldMarks: [],
+    // F25.12 (0.7.4): undo steps an extension made, named after it.
+    extUndo: [],
+    // F25.17: the switched-on extensions' menu items, block actions and panels.
+    extensions: [],
     handoutsOnly: false,
     adventureId: null,
     navTab: "outline"
@@ -34783,6 +35320,8 @@
     const mark = state.worldMarks[state.worldMarks.length - 1];
     if (mark !== void 0 && mark >= state.historyPos) {
       state.worldMarks.pop();
+      const named = state.extUndo[state.extUndo.length - 1];
+      if (named && named.mark === mark) state.extUndo.pop();
       const system = [state.info?.gameSystem?.id, state.info?.theme?.id].join(" ");
       const reply = await call("worldUndo");
       if (reply?.ok) {
@@ -35175,7 +35714,7 @@
         { label: t("menu.quit"), action: () => call("quit"), shortcut: "Ctrl+Q" }
       ] },
       { key: "menu.edit", items: [
-        { label: t("menu.undo"), action: () => undo(), shortcut: "Ctrl+Z", disabled: !has || ro },
+        { label: undoLabel(), action: () => undo(), shortcut: "Ctrl+Z", disabled: !has || ro },
         { label: t("menu.redo"), action: () => redo(), shortcut: "Ctrl+Shift+Z", disabled: !has || ro },
         { label: t("menu.find"), action: () => openFind(), shortcut: "Ctrl+F", disabled: !has },
         { label: t("menu.upgrade"), action: () => offerUpgrade(true), disabled: !has || ro }
@@ -35200,8 +35739,13 @@
       { key: "menu.format", items: [
         { label: t("toolbar.bold"), action: () => document.execCommand("bold"), shortcut: "Ctrl+B", disabled: !has || ro },
         { label: t("toolbar.italic"), action: () => document.execCommand("italic"), shortcut: "Ctrl+I", disabled: !has || ro },
+        // F4 (issue #5): the list at the cursor, bulleted or numbered.
+        { label: t("editor.toBulleted"), action: () => listKind(false), disabled: !has || ro || focusedList()?.ordered !== true },
+        { label: t("editor.toNumbered"), action: () => listKind(true), disabled: !has || ro || focusedList()?.ordered !== false },
         { label: t("menu.style"), disabled: !has || ro, children: styleKinds().map((kind) => ({ label: kindLabel(kind), action: () => setStyle2(kind) })) }
       ] },
+      // F25.17 (0.7.4): only while a switched-on extension has a menu item.
+      ...extensionMenu().length ? [{ key: "menu.extensions", items: extensionMenu() }] : [],
       { key: "menu.help", items: [
         { label: t("menu.example"), action: () => openExample() },
         // F9 (M5): the start-up checks on demand, with the theme self-test.
@@ -35215,9 +35759,262 @@
         // F19 (M5): the author guides, opened inside the app.
         { label: t("menu.guideTheme"), action: () => openGuide("guide-theme") },
         { label: t("menu.guideGameSystem"), action: () => openGuide("guide-game-system") },
+        // F25.19 (0.7.5): the third author guide.
+        { label: t("menu.guideExtension"), action: () => openGuide("guide-extension") },
         { label: t("menu.about"), action: () => openAbout() }
       ] }
     ];
+  }
+  function undoLabel() {
+    const mark = state.worldMarks[state.worldMarks.length - 1];
+    const named = state.extUndo[state.extUndo.length - 1];
+    if (named && mark !== void 0 && named.mark === mark && mark >= state.historyPos) return t("menu.undoNamed", { name: named.name });
+    return t("menu.undo");
+  }
+  function extensionMenu() {
+    const has = !!state.info?.hasDocument;
+    const items = [];
+    for (const e of state.extensions) {
+      if (!e.menu?.length) continue;
+      items.push({ label: e.name, heading: true });
+      for (const m of e.menu) items.push({ label: m.label, action: () => runExtension(e.id, m.id, {}), disabled: !has });
+    }
+    return items;
+  }
+  async function runExtension(id2, command, context) {
+    await flush();
+    const reply = await call("runExtension", id2, command, JSON.stringify({ chapter: state.chapterIndex, line: state.line, ...context }));
+    if (reply?.ok === false) showMessage(reply.error ?? "");
+  }
+  async function loadExtensions() {
+    state.extensions = await call("extensionContributions") ?? [];
+    buildMenus();
+    await renderExtTab();
+  }
+  async function onExtensionNotice(n) {
+    if (n.kind === "findings" || n.kind === "suggestion" || n.kind === "picture") {
+      await renderExtTab(true);
+    } else if (n.kind === "done" || n.kind === "failed") {
+      if (n.wrote) {
+        await reloadAfterWorld();
+        state.worldMarks.push(state.historyPos);
+        state.extUndo.push({ mark: state.historyPos, name: n.undoName });
+        buildMenus();
+      }
+      if (n.kind === "failed" || !n.ok) showMessage(n.message);
+      else if (n.wrote) flashStatus(t("ext.changed", { name: n.name, label: n.label }) + (n.message ? " " + n.message : ""));
+      else flashStatus(n.message || t("ext.done", { name: n.name, label: n.label }));
+    } else if (n.kind === "switchedOff") {
+      showMessage(n.message);
+      await loadExtensions();
+    }
+    document.body.dataset.extNotices = String(Number(document.body.dataset.extNotices || 0) + 1);
+  }
+  var extTab = { show: false, sections: [] };
+  var lowerTab = "scene";
+  var extFolded = /* @__PURE__ */ new Set();
+  function showLowerTab(which) {
+    lowerTab = extTab.show ? which : "scene";
+    const onExt = lowerTab === "extensions";
+    $6("lt-scene").setAttribute("aria-selected", String(!onExt));
+    $6("lt-extensions").setAttribute("aria-selected", String(onExt));
+    for (const id2 of ["scene-panel-scene", "scene-panel-list"]) $6(id2).classList.toggle("hidden", onExt);
+    $6("ext-tab").classList.toggle("hidden", !onExt);
+  }
+  async function goToLine(chapter, line) {
+    if (chapter !== state.chapterIndex && chapter < (state.info?.chapters ?? []).length) await loadChapter(chapter, true);
+    if (state.mode === "source") source.goToLine(line);
+    else visual.scrollToLine(line);
+  }
+  function smallButton(label, action, primary = false) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "small-btn" + (primary ? " primary" : "");
+    b.textContent = label;
+    b.addEventListener("click", action);
+    return b;
+  }
+  async function renderExtTab(focus = false) {
+    extTab = await call("extensionTab") ?? { show: false, sections: [] };
+    $6("lower-tabs").classList.toggle("hidden", !extTab.show);
+    $6("scene-panel").classList.toggle("tabs-on", !!extTab.show);
+    const box = $6("ext-tab");
+    box.textContent = "";
+    extTab.sections.forEach((sec, index) => {
+      const details = document.createElement("details");
+      details.className = "ext-section";
+      details.dataset.extension = sec.id;
+      details.open = index === 0 ? !extFolded.has(sec.id) : false;
+      details.addEventListener("toggle", () => details.open ? extFolded.delete(sec.id) : extFolded.add(sec.id));
+      const summary = document.createElement("summary");
+      summary.textContent = sec.name;
+      details.append(summary);
+      for (const f of sec.findings) {
+        const h4 = document.createElement("h4");
+        h4.textContent = `${f.title} (${f.items.length})`;
+        const list = document.createElement("ul");
+        list.className = "ext-findings";
+        if (!f.items.length) list.append(Object.assign(document.createElement("li"), { textContent: t("ext.findingsNone") }));
+        for (const item of f.items) {
+          const li = document.createElement("li");
+          li.textContent = item.text;
+          if (typeof item.line === "number") {
+            li.classList.add("goes");
+            li.addEventListener("click", () => goToLine(typeof item.chapter === "number" ? item.chapter : state.chapterIndex, item.line));
+          }
+          list.append(li);
+        }
+        details.append(h4, list);
+      }
+      if (sec.suggestions.length) {
+        const h4 = document.createElement("h4");
+        h4.textContent = t("ext.suggestionsTitle", { count: sec.suggestions.length });
+        const list = document.createElement("ul");
+        list.className = "ext-suggestion-list";
+        for (const s of sec.suggestions) {
+          const li = document.createElement("li");
+          li.className = "goes";
+          li.dataset.suggestion = s.id;
+          li.textContent = s.label || t(s.kind === "add" ? "ext.suggestAdd" : "ext.suggestReplace");
+          li.addEventListener("click", async () => {
+            await goToLine(s.chapter, s.line);
+            const card = document.querySelector(`.ext-suggestion[data-suggestion="${s.id}"]`);
+            card?.classList.add("flash");
+            setTimeout(() => card?.classList.remove("flash"), 1200);
+          });
+          list.append(li);
+        }
+        details.append(h4, list);
+      }
+      for (const pic of sec.pictures) details.append(pictureBox(pic));
+      if (sec.settings.length) {
+        const h4 = document.createElement("h4");
+        h4.textContent = t("ext.settingsTitle");
+        details.append(h4);
+        for (const s of sec.settings) details.append(settingControl(sec.id, s));
+      }
+      box.append(details);
+    });
+    if (!extTab.show) showLowerTab("scene");
+    else if (focus) showLowerTab("extensions");
+    placeSuggestions();
+    document.body.dataset.extTab = String(Number(document.body.dataset.extTab || 0) + 1);
+  }
+  function settingControl(ext, s) {
+    const row2 = document.createElement("label");
+    row2.className = "settings-row";
+    row2.append(Object.assign(document.createElement("span"), { textContent: s.label }));
+    let control;
+    if (s.kind === "choice") {
+      control = document.createElement("select");
+      for (const o of s.options) control.append(Object.assign(document.createElement("option"), { value: o, textContent: o }));
+      control.value = s.value;
+    } else {
+      control = document.createElement("input");
+      control.type = s.kind === "secret" ? "password" : "text";
+      control.autocomplete = "off";
+      if (s.kind === "secret") control.placeholder = t(s.set ? "ext.secretSet" : "ext.secretNotSet");
+      else control.value = s.value ?? "";
+    }
+    control.dataset.setting = s.id;
+    control.addEventListener("change", async () => {
+      const reply = await call("setExtensionSetting", ext, s.id, control.value);
+      if (reply?.ok === false) showMessage(reply.error ?? "");
+      if (s.kind === "secret") control.value = "";
+      await renderExtTab();
+    });
+    row2.append(control);
+    return row2;
+  }
+  function pictureBox(pic) {
+    const box = document.createElement("div");
+    box.className = "ext-picture";
+    box.dataset.picture = pic.id;
+    const img = document.createElement("img");
+    img.src = `data:image/${pic.format === "png" ? "png" : "jpeg"};base64,${pic.base64}`;
+    img.alt = pic.description;
+    const note = document.createElement("p");
+    note.textContent = pic.description;
+    const buttons = document.createElement("div");
+    buttons.className = "ext-buttons";
+    const portrait = pic.blockKind === "person" || pic.blockKind === "card";
+    buttons.append(
+      smallButton(t(portrait ? "ext.setPortrait" : "ext.use"), () => usePicture(pic.id, portrait), true),
+      smallButton(t("ext.regenerate"), async () => {
+        const reply = await call("regeneratePicture", pic.id);
+        if (reply?.ok === false) showMessage(reply.error ?? "");
+        await renderExtTab();
+      }),
+      smallButton(t("dialog.cancel"), async () => {
+        await call("cancelPicture", pic.id);
+        await renderExtTab();
+      })
+    );
+    box.append(img, note, buttons);
+    return box;
+  }
+  async function extensionChanged(undoName) {
+    await reloadAfterWorld();
+    state.worldMarks.push(state.historyPos);
+    state.extUndo.push({ mark: state.historyPos, name: undoName });
+    buildMenus();
+  }
+  async function usePicture(id2, portrait) {
+    await flush();
+    const reply = await call("usePicture", id2, portrait);
+    if (reply?.ok === false) showMessage(reply.error ?? "");
+    else await extensionChanged(reply.undoName);
+    await renderExtTab();
+  }
+  async function decideSuggestion(id2, accept) {
+    await flush();
+    const reply = await call(accept ? "acceptSuggestion" : "rejectSuggestion", id2);
+    if (reply?.ok === false) showMessage(reply.error ?? "");
+    else if (accept) await extensionChanged(reply.undoName);
+    await renderExtTab();
+  }
+  function placeSuggestions() {
+    for (const old of document.querySelectorAll(".ext-suggestion")) old.remove();
+    if (state.mode === "source") return;
+    for (const sec of extTab.sections ?? []) {
+      for (const s of sec.suggestions) {
+        if (s.chapter !== state.chapterIndex) continue;
+        const block = document.querySelector(`#visual section[data-line="${s.line}"]`);
+        if (!block) continue;
+        const card = document.createElement("div");
+        card.className = "ext-suggestion";
+        card.dataset.suggestion = s.id;
+        card.contentEditable = "false";
+        card.append(Object.assign(document.createElement("div"), {
+          className: "from",
+          textContent: t(s.kind === "add" ? "ext.suggestAddFrom" : "ext.suggestReplaceFrom", { name: s.name })
+        }));
+        const text = document.createElement("div");
+        text.className = "proposed" + (s.kind === "add" ? " adding" : "");
+        s.pieces.forEach((piece, i) => {
+          if (i) text.append(" ");
+          if (piece.changed && s.kind === "replace") text.append(Object.assign(document.createElement("mark"), { textContent: piece.text }));
+          else text.append(piece.text);
+        });
+        const buttons = document.createElement("div");
+        buttons.className = "ext-buttons";
+        buttons.append(
+          smallButton(t("ext.accept"), () => decideSuggestion(s.id, true), true),
+          smallButton(t("ext.reject"), () => decideSuggestion(s.id, false))
+        );
+        card.append(text, buttons);
+        block.after(card);
+      }
+    }
+  }
+  function focusedList() {
+    const place = visual.focused();
+    const block = place ? place.list.blocks[place.index] : null;
+    return block && block.type === "list" ? block : null;
+  }
+  function listKind(ordered) {
+    const place = visual.focused();
+    if (place) visual.setListKind(place, ordered);
   }
   function kindLabel(kind) {
     if (kind === "paragraph") return t("editor.paragraph");
@@ -35227,18 +36024,20 @@
     if (kind === "heading-4") return t("editor.subHeading2");
     if (kind === "heading-5") return t("editor.subHeading3");
     if (kind === "table") return t("editor.table");
+    if (kind === "list") return t("editor.list");
     if (kind === "image") return t("editor.image");
     return state.defs.find((d) => d.id === kind)?.name ?? kind;
   }
   function insertItems(kinds, onPick) {
     const pick = onPick ?? ((kind) => insert(kind));
-    const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside).map((d) => d.id), "table", "image"];
+    const allowed = kinds ?? ["paragraph", "heading", ...SUB_HEADINGS, "scene-end", ...state.defs.filter((d) => !d.onlyInside && d.offered !== false).map((d) => d.id), "list", "table", "image"];
     const items = [];
     for (const kind of ["paragraph", "heading", ...SUB_HEADINGS, "scene-end"]) {
       if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
     }
     const seenGroups = /* @__PURE__ */ new Set();
-    for (const def of state.defs.filter((d) => d.category !== "layout" && allowed.includes(d.id))) {
+    const isLayout = (d) => d.category === "layout" || LAYOUT_KINDS.includes(d.id);
+    for (const def of state.defs.filter((d) => !isLayout(d) && allowed.includes(d.id))) {
       let shortcut = def.shortcut ?? void 0;
       if (def.shortcutGroup) {
         if (seenGroups.has(def.shortcutGroup)) shortcut = void 0;
@@ -35247,22 +36046,22 @@
       items.push({ label: def.name, action: () => pick(def.id), shortcut });
       if (def.id === "information" && pickerType("clue")) items.push({ label: t("menu.insertClue"), action: () => pick("clue") });
     }
-    for (const kind of ["table", "image"]) {
+    for (const kind of ["list", "table", "image"]) {
       if (allowed.includes(kind)) items.push({ label: kindLabel(kind), action: () => pick(kind) });
     }
-    const layout4 = state.defs.filter((d) => d.category === "layout" && allowed.includes(d.id));
+    const layout4 = state.defs.filter((d) => isLayout(d) && allowed.includes(d.id));
     if (layout4.length) {
       items.push({ label: t("menu.layout"), heading: true });
       for (const def of layout4) items.push({ label: def.name, action: () => pick(def.id), shortcut: def.shortcut ?? void 0 });
     }
     return items;
   }
-  var LAYOUT_KINDS = ["full-width", "keep-together", "contents"];
+  var LAYOUT_KINDS = ["full-width", "column-section", "keep-together", "contents"];
   function groupedInsertItems(kinds, pick) {
     const used = /* @__PURE__ */ new Set();
     const columns = [];
     const text = [];
-    for (const kind of ["paragraph", "table", "image", "footnote"]) {
+    for (const kind of ["paragraph", "list", "table", "image", "footnote"]) {
       if (!kinds.includes(kind)) continue;
       used.add(kind);
       const def = state.defs.find((d) => d.id === kind);
@@ -35440,6 +36239,13 @@
         const option = document.createElement("option");
         option.value = JSON.stringify(theme);
         option.textContent = theme.name;
+        th.append(option);
+      }
+      for (const theme of systems[Number(gs.value)]?.locked ?? []) {
+        const option = document.createElement("option");
+        option.disabled = true;
+        option.className = "locked";
+        option.textContent = t("settings.themeLocked", { name: theme.name, reason: theme.reason });
         th.append(option);
       }
     };
@@ -35710,7 +36516,7 @@
         getSelection()?.removeAllRanges();
         getSelection()?.addRange(range);
       }
-      if (!visual.insertInline(`#footnote(text: ${JSON.stringify(answer.text.trim())})`)) flashStatus(t("codex.placeCursor"));
+      if (!visual.insertInline(`#footnote(text: ${JSON.stringify(escapeInline(answer.text.trim()))})`)) flashStatus(t("codex.placeCursor"));
       return;
     }
     if (def?.inlineForm === "call" && place === void 0) {
@@ -35787,6 +36593,9 @@
       if (block?.type === "element" && block.kind !== "card" && state.defs.some((d) => d.id === "card") && codex.types.some((x2) => x2.card === block.kind)) {
         items.push({ label: t("codex.toEntry"), action: () => convertToCodex(place) });
       }
+      if (block?.type === "list") {
+        items.push(block.ordered ? { label: t("editor.toBulleted"), action: () => visual.setListKind(place, false) } : { label: t("editor.toNumbered"), action: () => visual.setListKind(place, true) });
+      }
       if (isSubHeading(block)) {
         if (visual.canRaise(place)) items.push({ label: t("editor.raise"), action: () => visual.changeLevel(place, -1), shortcut: "Shift+Tab" });
         if (visual.canLower(place)) items.push({ label: t("editor.lower"), action: () => visual.changeLevel(place, 1), shortcut: "Tab" });
@@ -35794,10 +36603,14 @@
       const convert = visual.convertKinds(place);
       if (convert.length) {
         items.push({ label: t("editor.convertTo"), heading: true });
-        for (const kind of convert) items.push({ label: kindLabel(kind), action: () => visual.convert(place, kind) });
+        for (const kind2 of convert) items.push({ label: kindLabel(kind2), action: () => visual.convert(place, kind2) });
       }
+      const target = place.list.blocks[place.index];
+      const kind = target?.type === "element" ? target.kind : target?.type;
+      const actions = state.extensions.flatMap((e) => (e.blockActions ?? []).filter((a) => !a.kinds?.length || a.kinds.includes(kind)).map((a) => ({ label: `${e.name}: ${a.label}`, action: () => runExtension(e.id, a.id, { block: { kind, path: visual.pathOf(place) } }) })));
+      if (actions.length) items.push({ label: t("ext.blockActions"), heading: true }, ...actions);
       items.push({ label: t("editor.insertAfter"), heading: true });
-      items.push(...insertItems(visual.kindsFor(place.list, place.chain, null).filter((k) => place.chain.length === 0 || k !== "heading"), (kind) => insert(kind, place)));
+      items.push(...insertItems(visual.kindsFor(place.list, place.chain, null).filter((k) => place.chain.length === 0 || k !== "heading"), (kind2) => insert(kind2, place)));
     }
     contextItems = items;
     contextAt = { left: event3.clientX, top: event3.clientY };
@@ -36203,6 +37016,71 @@
     applyZoom();
     updateStatus();
   }
+  var follow = true;
+  var lastFollowed = "";
+  var lastManualPreview = 0;
+  var previewScrollingByUs = 0;
+  var MANUAL_PAUSE_MS = 2e3;
+  function renderFollow() {
+    $6("zoom-follow").setAttribute("aria-pressed", String(follow));
+  }
+  function spotFor(chapter, path) {
+    let best = null;
+    for (const spot of state.elements) {
+      if (spot.chapter !== chapter) continue;
+      if (comparePaths(spot.path, path) > 0) continue;
+      if (!best || comparePaths(spot.path, best.path) > 0) best = spot;
+    }
+    return best;
+  }
+  function comparePaths(a, b) {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+    return a.length - b.length;
+  }
+  function followTo(path) {
+    if (!follow || !previewShown || state.handoutsOnly || state.mode === "source") return false;
+    if (performance.now() - lastManualPreview < MANUAL_PAUSE_MS) return false;
+    const spot = spotFor(state.chapterIndex, path);
+    if (!spot) return false;
+    const img = $6("pages").querySelectorAll("img.page")[spot.page - 1];
+    if (!img || !img.naturalHeight) return false;
+    const pane2 = $6("preview-pane");
+    const heightPt = img.naturalHeight * 0.75;
+    const widthPt = img.naturalWidth * 0.75;
+    const imgBox = img.getBoundingClientRect();
+    const paneBox = pane2.getBoundingClientRect();
+    const y2 = imgBox.top - paneBox.top + pane2.scrollTop + spot.y / heightPt * imgBox.height;
+    const x2 = imgBox.left - paneBox.left + pane2.scrollLeft + spot.x / widthPt * imgBox.width;
+    previewScrollingByUs = performance.now();
+    pane2.scrollTop = Math.max(0, y2 - pane2.clientHeight / 3);
+    pane2.querySelectorAll(".follow-mark").forEach((m) => m.remove());
+    const mark = document.createElement("div");
+    mark.className = "follow-mark";
+    mark.style.top = y2 + "px";
+    mark.style.left = Math.max(2, x2 - 10) + "px";
+    pane2.append(mark);
+    setTimeout(() => mark.remove(), 1300);
+    return true;
+  }
+  function initFollow() {
+    follow = appValues()?.preview_follow !== false;
+    renderFollow();
+    $6("zoom-follow").addEventListener("click", async () => {
+      follow = !follow;
+      renderFollow();
+      await call("setAppSettings", JSON.stringify({ preview_follow: follow }));
+    });
+    const pane2 = $6("preview-pane");
+    const manual = () => {
+      lastManualPreview = performance.now();
+    };
+    pane2.addEventListener("wheel", manual, { passive: true });
+    pane2.addEventListener("pointerdown", manual);
+    pane2.addEventListener("keydown", manual);
+    pane2.addEventListener("scroll", () => {
+      if (performance.now() - previewScrollingByUs > 150) manual();
+    }, { passive: true });
+  }
   function elementAt(page, xPt, yPt, widthPt) {
     const here = state.elements.filter((e) => e.page === page + 1 && e.y <= yPt + 2);
     const sameColumn = here.filter((e) => e.x <= xPt + 4 && xPt - e.x < widthPt / 2);
@@ -36228,6 +37106,8 @@
     if (state.mode === "source") await setMode("visual");
     const found = visual.blockAt(spot.path);
     if (!found) return false;
+    lastManualPreview = performance.now();
+    visual.focusBlock(found.block);
     if (found.block.type !== "element") {
       visual.focusBlock(found.block);
       return true;
@@ -36348,7 +37228,15 @@
     for (const option of info2.themes ?? []) {
       const o = document.createElement("option");
       o.value = option.id;
-      o.textContent = option.general ? t("settings.themeGeneral", { name: option.name }) : option.name;
+      o.textContent = option.name;
+      theme.append(o);
+    }
+    for (const option of info2.themesLocked ?? []) {
+      const o = document.createElement("option");
+      o.value = option.id;
+      o.disabled = option.id !== info2.themeId;
+      o.className = "locked";
+      o.textContent = t("settings.themeLocked", { name: option.name, reason: option.reason });
       theme.append(o);
     }
     theme.value = info2.themeId ?? "";
@@ -36704,6 +37592,7 @@
     $6("update-open").classList.add("hidden");
     $6("update-install").classList.add("hidden");
     $6("update-install-text").classList.add("hidden");
+    $6("update-settings").classList.add("hidden");
     $6("update-address").textContent = "";
     if (!dialog.open) dialog.showModal();
     updateWanted = true;
@@ -36719,7 +37608,8 @@
       unreachable: t("update.unreachable"),
       invalid: t("update.invalid"),
       unsigned: t("update.unsigned"),
-      "no-key": t("update.noKey")
+      "no-key": t("update.noKey"),
+      blocked: t("update.blocked")
     };
     const newer = r.state === "newer";
     let text = newer ? t("update.newer", { version: r.version, current: r.current }) + (r.download ? "" : " " + t("update.noDownload")) : texts[r.state] ?? texts.invalid;
@@ -36730,6 +37620,7 @@
     $6("update-open").classList.toggle("hidden", !(newer && r.download));
     $6("update-open").classList.toggle("primary", !(newer && r.installable));
     $6("update-install").classList.toggle("hidden", !(newer && r.installable));
+    $6("update-settings").classList.toggle("hidden", r.state !== "blocked");
     $6("update-install").disabled = false;
     $6("update-install-text").classList.add("hidden");
     $6("update-address").textContent = r.address ? t(r.entered ? "update.addressEntered" : "update.addressBuiltIn", { address: r.address }) : "";
@@ -36754,6 +37645,7 @@
   }
   function onUpdateInstalled(r) {
     const reasons = {
+      blocked: t("update.blocked"),
       unreachable: t("update.installUnreachable"),
       runtime: t("update.needsInstaller")
     };
@@ -36779,10 +37671,11 @@
     if (reply?.ok) showMessage(t("update.goBackReady", { version: reply.version }));
   }
   async function offerUpdateQuestion() {
-    const reply = await call("updatePrompt");
-    if (reply?.ask) {
-      const answer = await ask(t("update.askText"), t("update.askYes"), "", t("update.askNo"));
-      await call("answerUpdatePrompt", answer === "yes");
+    const notice = await call("offlineNotice");
+    if (notice?.show) {
+      const answer = await ask(t("connections.offlineNotice"), t("connections.openSettings"), "", t("dialog.ok"));
+      await call("offlineNoticeSeen");
+      if (answer === "yes") await openSettingsWindow("application");
     }
     await call("weeklyUpdateCheck");
   }
@@ -36928,6 +37821,14 @@
         updateStatus();
         updateScenePanel(state.line);
         if (state.mode === "hybrid" && block && place) showHybrid({ block, place });
+        if (block && place) {
+          const path = visual.pathOf(place);
+          const key = state.chapterIndex + ":" + path.join(".");
+          if (key !== lastFollowed) {
+            lastFollowed = key;
+            followTo(path);
+          }
+        }
       },
       openInsertMenu: (anchor, place, kinds) => showPopup(anchor, groupedInsertItems(kinds, (kind, variant) => insert(kind, place, variant))),
       openContextMenu: (event3, place) => openContextMenu(event3, place),
@@ -36947,7 +37848,10 @@
         const result = await call("imageUrl", path);
         return result?.ok ? result.url : null;
       },
-      afterRender: () => spelling?.schedule(200),
+      afterRender: () => {
+        spelling?.schedule(200);
+        placeSuggestions();
+      },
       codexEntries: () => codex.entries,
       typesWithCard: () => codex.types.filter((x2) => x2.card).map((x2) => x2.id),
       maps: () => codex.maps,
@@ -36988,11 +37892,12 @@
       fillAdventure,
       adventureName: () => state.info?.hasDocument ? state.info.title : null,
       addFont: () => addFont(),
-      onStartMode: () => void 0
+      onStartMode: () => void 0,
+      extensionsChanged: () => loadExtensions()
     });
     setChipLabeler((kind, args) => {
       if (kind === "footnote") {
-        const text = /text:\s*"((?:[^"\\]|\\.)*)"/.exec(args)?.[1] ?? "";
+        const text = inlineToPlain(footnoteText("#footnote(" + args + ")"));
         return "\u2020 " + (text.length > 28 ? text.slice(0, 28) + "\u2026" : text);
       }
       if (kind !== "mention" && kind !== "see") return null;
@@ -37135,6 +38040,7 @@
     $6("tb-fullscreen").addEventListener("click", () => setFullScreen(!fullScreen));
     initAbout();
     initAppZoom();
+    initFollow();
     on("fullScreenChanged", (on4) => {
       fullScreen = !!on4;
       renderFullScreen();
@@ -37160,6 +38066,13 @@
     on("suggestions", onSuggestions);
     on("selfTestFinished", onSelfTest);
     on("updateChecked", onUpdateChecked);
+    on("extensionNotice", (n) => onExtensionNotice(n));
+    $6("lt-scene").addEventListener("click", () => showLowerTab("scene"));
+    $6("lt-extensions").addEventListener("click", () => showLowerTab("extensions"));
+    $6("update-settings").addEventListener("click", () => {
+      $6("update-dialog").close();
+      openSettingsWindow("application");
+    });
     $6("update-close").addEventListener("click", () => $6("update-dialog").close());
     $6("update-open").addEventListener("click", () => call("openDownloadPage"));
     $6("update-install").addEventListener("click", () => installUpdate());
@@ -37175,12 +38088,24 @@
     await refresh();
     state.ready = true;
     await call("uiReady");
+    await loadExtensions();
     await showStartupReport();
     await offerRecovery();
     await loadVersionInfo();
     await offerUpdateQuestion();
   }
   window.__scriptorum = {
+    // F25 (0.7.4): the extensions' items, for the tests.
+    extensions: {
+      run: runExtension,
+      load: loadExtensions,
+      undoLabel,
+      list: () => state.extensions,
+      tab: () => extTab,
+      showTab: showLowerTab,
+      renderTab: renderExtTab
+    },
+    openGuide,
     state: () => ({
       ready: state.ready,
       mode: state.mode,
@@ -37195,6 +38120,7 @@
       words: state.chapter?.words ?? 0,
       info: state.info,
       tabs: state.tabs,
+      doc: visual.current(),
       status: ["st-line", "st-page", "st-words", "st-problems", "st-export"].map((id2) => $6(id2).textContent)
     }),
     flush,
@@ -37254,6 +38180,11 @@
     switchTab,
     closeTab,
     kindOf,
+    focusedKind: () => {
+      const p2 = visual.focused();
+      const b = p2 ? p2.list.blocks[p2.index] : null;
+      return b ? kindOf(b) + (b.type === "list" ? b.ordered ? ":ordered" : ":bulleted" : "") : null;
+    },
     isDoc,
     dropImage: async (name, base64) => {
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));

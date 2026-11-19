@@ -472,7 +472,8 @@ def test_T_UI_32_no_other_network_code():
         text = file.read_text("utf-8")
         if re.search(r"\b(urllib\.request|urlopen|http\.client|socket\.create_connection|QNetworkAccessManager|requests\.)", text):
             users.append(file.relative_to(root).as_posix())
-    assert users == ["core/updates.py"]
+    # Corrected for 0.7.0 (F23.6): the requests moved into the API's network gate.
+    assert users == ["api/net.py"]
 
 
 # --- T-UI-32 and T-SRC-18 in the window ------------------------------------------------------
@@ -491,6 +492,9 @@ def ui(tmp_path_factory):
     session = Session(library, Strings.from_library(library), RecentFiles(folder / "recent.json"), folder / "build",
                       home=folder / "home")
     window = MainWindow(session, headless_test=True)
+    # Corrected for 0.7.4 (F25.1): connections outside the app are blocked by
+    # default, so these update tests turn them on first.
+    session.app_settings.update({"connections_blocked": False})
     window.bridge.confirm_discard = lambda: True
     window.resize(1440, 900)
     window.show()
@@ -560,17 +564,19 @@ def test_T_UI_32_first_start_and_weekly(ui):
     bridge.update_url = "https://example.org/scriptorum/update.json"
     asked = []
     bridge.update_opener = lambda u: asked.append(u) or _file("0.6.3")
+    # Corrected for 0.7.4 (F25.2, T-EXT-02): the weekly question is no longer
+    # asked; the one-time offline message takes its place, and OK changes nothing.
+    settings.update({"offline_notice_shown": False})
     ui.js("window.__scriptorum.updates.offer(); true")
     ui.wait_until(lambda: ui.js("document.getElementById('ask-dialog').open") is True, 5)
-    assert "once a week" in ui.js("document.getElementById('ask-text').textContent")
-    # The answer that has focus is "No, thanks": off by default.
-    assert ui.js("document.activeElement.id") == "ask-cancel"
-    assert ui.js("document.activeElement.textContent") == "No, thanks"
+    assert ui.js("document.getElementById('ask-text').textContent").startswith("Scriptorum is offline by default")
+    assert "once a week" not in ui.js("document.getElementById('ask-text').textContent")
     ui.js("document.getElementById('ask-cancel').click(); true")
-    ui.wait_until(lambda: settings.get("update_asked") is True, 5)
+    ui.wait_until(lambda: settings.get("offline_notice_shown") is True, 5)
     ui.wait(300)
     assert settings.get("update_weekly") is False and asked == []
-    # Asked once: not again.
+    # Shown once: not again; the old question is never asked.
+    assert json.loads(bridge.offlineNotice())["show"] is False
     assert json.loads(bridge.updatePrompt())["ask"] is False
     assert json.loads(bridge.weeklyUpdateCheck())["started"] is False and asked == []
     # The switch in Settings ▸ Application.

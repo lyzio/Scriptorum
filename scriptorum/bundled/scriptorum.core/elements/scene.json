@@ -66,5 +66,31 @@
   "editor": "form",
   "shortcut": "Ctrl+Shift+S",
   "anchor": true,
-  "toolbar_group": "structure"
+  "toolbar_group": "structure",
+  "paste_labels": {
+    "names": [
+      "Scene",
+      "Scen"
+    ],
+    "fields": {
+      "title": [
+        "Title",
+        "Titel"
+      ],
+      "place": [
+        "Location",
+        "Place",
+        "Plats"
+      ],
+      "people": [
+        "Present",
+        "People present",
+        "Närvarande"
+      ],
+      "type": [
+        "Type",
+        "Typ"
+      ]
+    }
+  }
 }

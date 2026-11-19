@@ -62,5 +62,8 @@
   "exitFullScreen": "Exit full screen",
   "insertClue": "Clue",
   "groupText": "Text",
-  "groupOther": "Other"
+  "groupOther": "Other",
+  "extensions": "Extensions",
+  "undoNamed": "Undo {name}",
+  "guideExtension": "How to write an extension"
 }

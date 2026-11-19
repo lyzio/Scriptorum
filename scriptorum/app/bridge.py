@@ -1,7 +1,11 @@
-"""The bridge between the interface (TypeScript) and the core (3.1).
+"""The bridge between the interface (TypeScript) and the internal API (3.1, F23).
 
-Every slot returns JSON text. The interface never touches files: dialogs,
-saving, building and exporting all happen here, in the core.
+Every slot returns JSON text. From 0.7.0 (F23.5) the bridge keeps only what
+needs Qt: dialogs and file pickers, windows, timers, the clipboard, local
+file addresses for the web view, and the WebChannel signals. Everything else
+is passed to the internal API (``scriptorum/api``), the one versioned layer
+between the core and everything that uses it. The interface calls the
+bridge by the same names as before.
 
 Several adventures can be open at the same time, each in its own tab (F2.2);
 every slot works on the active tab.
@@ -9,25 +13,16 @@ every slot works on the active tab.
 
 from __future__ import annotations
 
-import base64
 import json
-import shutil
 import threading
 import time
-from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from scriptorum.core.build import BuildResult, Problem
-from scriptorum.core.fonts import FontRefused
-from scriptorum.core import modmanager
-from scriptorum.core.modules import ModuleError
-from scriptorum.core.scav import ScavError
-from scriptorum.core.session import Session
-from scriptorum.core.world import WorldError
-from scriptorum.core.spelling import SpellChecker
+from scriptorum.api import Api
+from scriptorum.api import net
 
 BUILD_DELAY_MS = 300  # F7.1.1: about 0.3 seconds after typing stops
 SNAPSHOT_TICK_MS = 30_000  # F2.6: how often to ask whether a snapshot is due
@@ -35,6 +30,11 @@ SNAPSHOT_TICK_MS = 30_000  # F2.6: how often to ask whether a snapshot is due
 
 def _json(data) -> str:
     return json.dumps(data, ensure_ascii=False)
+
+
+def _url(path: str) -> str:
+    """A local file as an address the web view can show."""
+    return QUrl.fromLocalFile(str(path)).toString()
 
 
 class Bridge(QObject):
@@ -48,17 +48,18 @@ class Bridge(QObject):
     selfTestFinished = Signal(str)   # F9: the theme self-test of Help ▸ Check installation
     updateChecked = Signal(str)      # F21 (M6 part C): the result of an update check
     updateInstalled = Signal(str)    # F22 (M6 part C5): the result of Download and install
+    extensionNotice = Signal(str)    # F25 (0.7.4): an extension finished, failed or sent findings
     _buildDone = Signal(object, object, int)
     _suggestDone = Signal(str)
     _selfTestDone = Signal(str)
     _updateDone = Signal(str)
     _installDone = Signal(str)
 
-    def __init__(self, session: Session, window=None, spelling=None):
+    def __init__(self, session, window=None, spelling=None):
         super().__init__()
-        self.sessions: List[Session] = [session]
-        self.active = 0
         self.window = window
+        self.api = Api(session, spelling, headless=bool(getattr(window, "headless_test", False)))
+        self.api.events.subscribe(self._on_event)
         self.ui_ready = False
         self.on_ui_ready = None
         self.confirm_discard = self._ask_discard  # tests replace this
@@ -79,28 +80,8 @@ class Bridge(QObject):
         self._suggestDone.connect(self.suggestions.emit)
         self._updateDone.connect(self.updateChecked.emit)
         self._installDone.connect(self.updateInstalled.emit)
-        # F21: the update address and the reader of the update file; the
-        # tests replace them, so no test ever reaches the internet.
-        from scriptorum.core import updates
-        self.update_url = updates.UPDATE_URL
-        self.update_opener = None
-        self.update_requests: List[str] = []   # every address asked, for the tests
-        self.update_download: Optional[str] = None
         self.opened_downloads: List[str] = []
-        # F22: the pack named in the last signed update file, what downloads
-        # it (the tests replace it), and the versions kept in the author's
-        # folder. ``update_key`` and ``update_runtime`` stand in for the
-        # built-in key and this computer's libraries in the tests.
-        self.update_pack: Optional[dict] = None
-        self.update_version: Optional[str] = None
-        self.update_downloader = None
-        self.update_key: Optional[str] = None
-        self.update_runtime: Optional[dict] = None
-        self.update_moved: Optional[str] = None
-        from scriptorum import paths as _p
-        from scriptorum.core.packs import Versions
-        self.versions = Versions(_p.app_home())
-        self.start_notice = None
+        self.opened_sites: List[str] = []
         # F21.4: the question at first start; test windows skip it unless a
         # test asks for it, so the other window tests are not interrupted.
         self.ask_updates_at_start = not getattr(window, "headless_test", False)
@@ -108,86 +89,148 @@ class Bridge(QObject):
         self._snapshots.setInterval(SNAPSHOT_TICK_MS)
         self._snapshots.timeout.connect(self.snapshot_tick)
         self._snapshots.start()
-        # F9 (M5): the start-up window loads the dictionaries, so they are
-        # ready at once in the editor; without it they load in the background.
-        self.spelling = spelling or SpellChecker()
-        self.startup_results: list = []   # checks that failed at start-up
-        self.open_problem = None           # why the double-clicked adventure did not open
         self._selfTestDone.connect(self.selfTestFinished.emit)
-        from scriptorum import paths as _paths
-        from scriptorum.core.viewstate import ViewState
-        self.view_state = ViewState(_paths.app_home() / "view-state.json")  # F7.2: zoom per adventure
         self._spell_watch = QTimer(self)
         self._spell_watch.setInterval(250)
         self._spell_watch.timeout.connect(self._check_spell_ready)
         self.spelling.start()
         self._spell_watch.start()
         self.closed = False
-        self.skip_css = False  # F16: Shift held at start skips a palette's stylesheet
-        self.system_dark = False  # F16: whether the computer is in dark mode
+        # F25.11 (0.7.4): what running extensions send is handled on this thread.
+        self.api.extensions.listeners.append(self._extension_notice)
+        self._extensions_timer = QTimer(self)
+        self._extensions_timer.setInterval(50)
+        self._extensions_timer.timeout.connect(self.api.extensions.pump)
+        self._extensions_timer.start()
 
     def shutdown(self) -> None:
         """The window is closing: stop every timer and ignore results that
         arrive later from background work, so nothing reaches a page that
         Qt has already deleted."""
         self.closed = True
-        for timer in (self._timer, self._snapshots, self._spell_watch):
+        for timer in (self._timer, self._snapshots, self._spell_watch, self._extensions_timer):
             timer.stop()
+        self.api.extensions.stop_all()   # F25.11: no extension outlives the window
 
-    # --- the active tab ---------------------------------------------------------
+    # --- the API's state, as the tests and the window know it ------------------------
     @property
-    def session(self) -> Session:
-        return self.sessions[self.active]
+    def sessions(self):
+        return self.api.sessions
 
-    def _new_tab(self) -> Session:
-        base = self.sessions[0].work_dir
-        tab = self.session.sibling(base.parent / f"{base.name}-tab{len(self.sessions) + int(time.time() * 1000) % 100000}")
-        self.sessions.append(tab)
-        self.active = len(self.sessions) - 1
-        return tab
+    @property
+    def active(self) -> int:
+        return self.api.active
 
-    def _tab_for_new_document(self) -> Session:
-        """An empty tab is reused; otherwise a new tab opens (F2.2)."""
-        if self.session.adventure is None:
-            return self.session
-        return self._new_tab()
+    @active.setter
+    def active(self, value: int) -> None:
+        self.api.active = value
 
-    # --- helpers --------------------------------------------------------------
-    def _error(self, exc: Exception) -> str:
-        if isinstance(exc, WorldError) and exc.key == "error.codex.inUse":
-            # F3.8: the refusal lists the places that use the entry.
-            text = self.session.t(exc.key, places=self._places(exc.details.get("places", [])))
-        elif isinstance(exc, (ScavError, ModuleError, FontRefused, WorldError)):
-            text = self.session.t(exc.key, **exc.details)
+    @property
+    def session(self):
+        return self.api.session
+
+    def _tab_for_new_document(self):
+        return self.api.tab_for_new_document()
+
+    def _forward(name, owner="app"):  # noqa: N805 - a small helper for the properties below
+        def get(self):
+            return getattr(getattr(self.api, owner), name)
+
+        def put(self, value):
+            setattr(getattr(self.api, owner), name, value)
+        return property(get, put)
+
+    spelling = _forward("spelling")
+    system_dark = _forward("system_dark")
+    skip_css = _forward("skip_css")
+    startup_results = _forward("startup_results")
+    open_problem = _forward("open_problem")
+    view_state = _forward("view_state")
+    start_notice = _forward("start_notice")
+    versions = _forward("versions")
+    update_url = _forward("update_url")
+    update_key = _forward("update_key")
+    update_runtime = _forward("update_runtime")
+    update_pack = _forward("update_pack")
+    update_version = _forward("update_version")
+    update_moved = _forward("update_moved")
+    update_download = _forward("update_download")
+    del _forward
+
+    @property
+    def crash_folder(self):
+        return self.api.crash_folder
+
+    @crash_folder.setter
+    def crash_folder(self, value) -> None:
+        self.api.crash_folder = value
+
+    @property
+    def last_crash_log(self):
+        return getattr(self.api, "last_crash_log", None)
+
+    @property
+    def update_requests(self) -> List[str]:
+        """Every address the network gate was asked for (F23.6), in order."""
+        return self.api.net.requests
+
+    @property
+    def update_opener(self):
+        return self.api.net.readers.get(net.UPDATE_FILE)
+
+    @update_opener.setter
+    def update_opener(self, reader) -> None:
+        self._set_reader(net.UPDATE_FILE, reader)
+
+    @property
+    def update_downloader(self):
+        return self.api.net.readers.get(net.UPDATE_PACK)
+
+    @update_downloader.setter
+    def update_downloader(self, reader) -> None:
+        self._set_reader(net.UPDATE_PACK, reader)
+
+    def _set_reader(self, purpose: str, reader) -> None:
+        if reader is None:
+            self.api.net.readers.pop(purpose, None)
         else:
-            text = str(exc)
-        return _json({"ok": False, "error": text})
+            self.api.net.readers[purpose] = reader
 
-    def _places(self, places: list) -> str:
-        t = self.session.t
-        parts = []
-        for p in places:
-            if p["where"] == "text":
-                parts.append(t("codex.usedInScene", scene=p["scene"], line=p["line"]) if p.get("scene")
-                             else t("codex.usedAtLine", line=p["line"]))
-            elif p["where"] == "entry":
-                parts.append(t("codex.usedInEntry", title=p["title"]))
-            else:
-                parts.append(t("codex.usedInMap", title=p["title"]))
-        return "; ".join(parts)
+    # --- what the API announces (F23.3) ----------------------------------------------
+    def _on_event(self, name: str, details: dict) -> None:
+        if self.closed:
+            return
+        if name in ("text.changed", "codex.changed") or (name == "modules.changed" and details.get("rebuild")):
+            self._changed()
+        elif name.startswith("adventure."):
+            self._title_changed()
+
+    def _changed(self) -> None:
+        self._title_changed()
+        self.requestBuild()
 
     def _title_changed(self) -> None:
         if self.window is not None:
             self.window.update_title()
 
+    def _reply(self, data, show_error=False) -> str:
+        """The API's reply as JSON; a refusal is also shown in a message box
+        where the app always did so: any refusal to open, and a save or an
+        export that could not be written (``show_error`` names its key)."""
+        if (show_error and isinstance(data, dict) and data.get("ok") is False and data.get("error")
+                and (show_error is True or data.get("key") == show_error)):
+            self._show_error(data["error"])
+        return _json(data)
+
+    # --- closing ------------------------------------------------------------------------
     def _ask_discard(self) -> bool:
         """Unsaved changes before closing: Save, Don't save or Cancel."""
-        if self.session.adventure is None or not self.session.dirty:
+        if not self.api.adventure.unsaved():
             return True
-        t = self.session.t
+        t = self.api.app.text
         box = QMessageBox(self.window)
         box.setWindowTitle(t("dialog.unsavedTitle"))
-        box.setText(t("dialog.unsavedText", title=self.session.adventure.title))
+        box.setText(t("dialog.unsavedText", title=self.api.adventure.title()))
         save = box.addButton(t("dialog.save"), QMessageBox.AcceptRole)
         discard = box.addButton(t("dialog.discard"), QMessageBox.DestructiveRole)
         box.addButton(t("dialog.cancel"), QMessageBox.RejectRole)
@@ -199,318 +242,178 @@ class Bridge(QObject):
 
     def confirm_close_all(self) -> bool:
         """Before quitting: every tab with unsaved changes asks in turn."""
-        for index in range(len(self.sessions)):
+        for index, tab in enumerate(self.api.adventure.tabs()):
             self.active = index
-            if self.sessions[index].dirty and not self.confirm_discard():
+            if tab["dirty"] and not self.confirm_discard():
                 return False
-        for tab in self.sessions:
-            tab.close()
+        self.api.adventure.close_all()
         return True
 
-    # --- start-up ---------------------------------------------------------------
+    # --- start-up ---------------------------------------------------------------------
     @Slot(result=str)
     def strings(self) -> str:
-        return _json(self.session.strings.table)
+        return _json(self.api.app.strings())
 
     @Slot(result=str)
     def uiReady(self) -> str:
         self.ui_ready = True
-        # F22.5: this version opened its window, so it has started; anything
-        # the start-up step has to say is shown once.
-        from scriptorum import __version__
-        try:
-            self.versions.started(__version__)
-            if self.start_notice is None:
-                self.start_notice = self.versions.take_notice()
-        except OSError:
-            pass
+        reply = self.api.app.ui_ready()
+        self.start_extensions()
         if self.on_ui_ready:
             self.on_ui_ready()
-        return _json({"ok": True})
+        return _json(reply)
 
     @Slot(result=str)
     def info(self) -> str:
-        return _json(self.session.info())
+        return _json(self.api.adventure.info())
 
     @Slot(result=str)
     def editorInfo(self) -> str:
-        return _json(self.session.editor_info())
+        return _json(self.api.adventure.editor_info())
 
     @Slot(result=str)
     def gameSystems(self) -> str:
-        return _json(self.session.game_systems())
+        return _json(self.api.modules.game_systems())
 
-    # --- app settings (F18) and palettes (F16), M4 ---------------------------------------
+    # --- app settings (F18) and palettes (F16) ------------------------------------------
     def _app_info(self) -> dict:
-        from scriptorum import paths
-        from scriptorum.core import appsettings
-
-        library = self.session.library
-        settings = self.session.app_settings
-        chosen = appsettings.chosen_palette(library, settings)
-        return {
-            "values": dict(settings.values),
-            "systemDark": self.system_dark,
-            "skipCss": self.skip_css,
-            "palette": appsettings.palette_info(chosen, self.skip_css) if chosen else None,
-            "palettes": [appsettings.palette_info(m, True) for m in appsettings.palettes(library)],
-            "tokens": list(appsettings.TOKENS),
-            "languages": [{"id": m.id, "name": m.name} for m in library.of_kind("interface-language")],
-            # F14, F18 (M6): the module manager's list, disabled modules included.
-            "modules": modmanager.module_list(library, self.session.recent._read(), settings),
-            "crashLogs": str(paths.logs_dir()),
-        }
+        return self.api.app.settings()
 
     @Slot(result=str)
     def appSettings(self) -> str:
-        return _json(self._app_info())
+        return _json(self.api.app.settings())
 
     @Slot(str, result=str)
     def setAppSettings(self, data: str) -> str:
-        """F18: every change takes effect at once, without a restart."""
-        changes = json.loads(data)
-        if "palette" in changes:
-            changes.setdefault("palette_version", None)
-        self.session.app_settings.update(changes)
-        for tab in self.sessions:
-            tab.apply_app_settings()
-        return _json(self._app_info())
+        return _json(self.api.app.set_settings(json.loads(data)))
 
     @Slot(str, result=str)
     def savePalette(self, data: str) -> str:
-        """F16 New palette from this one: saved as a palette module and chosen."""
-        from scriptorum.core import appsettings
-        from scriptorum.core.palettes import low_contrast
-
-        request = json.loads(data)
-        try:
-            module = appsettings.save_palette(self.session.library, request.get("name", ""),
-                                              request.get("light", {}), request.get("dark", {}))
-        except Exception as exc:  # noqa: BLE001 - shown to the author in plain words
-            return self._error(exc)
-        self.session.app_settings.update({"palette": module.id, "palette_version": module.version})
-        info = self._app_info()
-        info["ok"] = True
-        info["saved"] = {"id": module.id, "version": module.version, "name": module.name}
-        info["warnings"] = low_contrast(request.get("light", {})) + low_contrast(request.get("dark", {}))
-        return _json(info)
+        return _json(self.api.app.save_palette(json.loads(data)))
 
     @Slot(result=str)
     def resetPalette(self) -> str:
-        """F16: Reset to Claret & Ink is always offered."""
-        from scriptorum.core import appsettings
+        return _json(self.api.app.reset_palette())
 
-        self.session.app_settings.update({"palette": appsettings.DEFAULT_PALETTE, "palette_version": None})
-        return _json(self._app_info())
-
-    # --- Help ▸ About Scriptorum (F9, M6 part B) ------------------------------------
+    # --- Help ▸ About Scriptorum (F9) -------------------------------------------------
     @Slot(result=str)
     def aboutInfo(self) -> str:
-        from scriptorum.core import about
-
-        return _json(about.info(self.session.library))
+        return _json(self.api.app.about())
 
     @Slot(str, result=str)
     def aboutText(self, ref: str) -> str:
-        from scriptorum.core import about
+        return _json(self.api.app.about_text(ref))
 
-        text = about.text(ref, self.session.library)
-        return _json({"ok": text is not None, "text": text or ""})
+    def _open_in_browser(self, address: QUrl) -> None:
+        from PySide6.QtGui import QDesktopServices
+        if not getattr(self.window, "headless_test", False):
+            QDesktopServices.openUrl(address)
 
     @Slot(result=str)
     def openIdeaSite(self) -> str:
         """lyzio.net opens in the computer's own web browser; Scriptorum
         itself makes no network request (D9). Only this one address."""
-        from PySide6.QtGui import QDesktopServices
-        from scriptorum.core.about import IDEA_SITE
-
-        self.opened_sites = getattr(self, "opened_sites", []) + [IDEA_SITE]
-        if not getattr(self.window, "headless_test", False):
-            QDesktopServices.openUrl(QUrl(IDEA_SITE))
+        site = self.api.app.idea_site()
+        self.opened_sites.append(site)
+        self._open_in_browser(QUrl(site))
         return _json({"ok": True})
 
-    # --- the update check (F21, M6 part C) and installing updates (F22, C5) ----------
+    # --- the update check (F21) and installing updates (F22) ------------------------------
     def update_address(self) -> str:
-        """F22: the Update address the author entered, or the built-in one."""
-        from scriptorum.core import updates
-        return updates.address_in_use(self.session.app_settings.get("update_address"), self.update_url)
+        return self.api.app.update_address()
+
+    def _in_background(self, work, done: Signal) -> None:
+        """Work that takes a while runs off the window's thread; its reply
+        arrives through a signal."""
+        def run():
+            reply = _json(work())
+            if not self.closed:
+                done.emit(reply)
+        threading.Thread(target=run, daemon=True).start()
 
     def _run_update_check(self, auto: bool) -> None:
-        """Ask for the update file in the background, so the window stays
-        usable; the result arrives through ``updateChecked``."""
-        from scriptorum import __version__
-        from scriptorum.core import updates
-
-        url = self.update_address()
-        settings = self.session.app_settings
-
-        def opener(address: str) -> bytes:
-            self.update_requests.append(address)
-            return (self.update_opener or updates.fetch)(address)
-
-        def work():
-            result = updates.check(__version__, url, opener, key=self.update_key, have=self.update_runtime)
-            if result["state"] not in (updates.NO_ADDRESS, updates.NOT_HTTPS):
-                settings.update({"update_last_check": int(time.time())})
-            self.update_download = result.get("download")
-            self.update_pack = result.pop("pack", None)
-            self.update_version = result.get("version") if self.update_pack else None
-            self.update_moved = result.get("moved")
-            result["installable"] = self.update_pack is not None
-            result["auto"] = auto
-            result["current"] = __version__
-            result["address"] = url if updates.address_set(url) else ""
-            result["entered"] = bool((settings.get("update_address") or "").strip())
-            if not self.closed:
-                self._updateDone.emit(_json(result))
-        threading.Thread(target=work, daemon=True).start()
+        self._in_background(lambda: self.api.app.check_updates(auto), self._updateDone)
 
     @Slot(result=str)
     def checkForUpdates(self) -> str:
         """Help ▸ Check for updates…: with Download and install, the only
-        network requests the app makes (D9)."""
+        network requests the app makes (D9), through the API's gate (F23.6)."""
         self._run_update_check(auto=False)
         return _json({"ok": True})
 
     @Slot(result=str)
     def installUpdate(self) -> str:
-        """F22: Download and install, only when the author clicks it. The pack
-        is checked and unpacked into the author's own folder in the
-        background; open adventures are never interrupted. The result
-        arrives through ``updateInstalled``."""
-        from scriptorum import __version__
-        from scriptorum.core import updates
-
-        pack, version = self.update_pack, self.update_version
-        if not pack:
+        """F22: Download and install, only when the author clicks it; the
+        result arrives through ``updateInstalled``."""
+        if not self.api.app.can_install():
             return _json({"ok": False})
-
-        def download(address: str) -> bytes:
-            self.update_requests.append(address)
-            return (self.update_downloader or updates.fetch_pack)(address)
-
-        def work():
-            try:
-                installed = updates.install(pack, self.versions, download, key=self.update_key,
-                                            have=self.update_runtime, running=self._running_kept(__version__),
-                                            expected=version)
-                result = {"ok": True, "version": installed}
-            except updates.InstallError as exc:
-                result = {"ok": False, "reason": exc.reason}
-            except Exception as exc:  # noqa: BLE001 - said plainly, details in the crash log
-                from scriptorum.core import crashlog
-                crashlog.write_crash_log(type(exc), exc, exc.__traceback__)
-                result = {"ok": False, "reason": "damaged"}
-            if not self.closed:
-                self._installDone.emit(_json(result))
-        threading.Thread(target=work, daemon=True).start()
+        self._in_background(self.api.app.install_update, self._installDone)
         return _json({"ok": True})
-
-    def _running_kept(self, running: str) -> Optional[str]:
-        """The version running now, when it runs from the author's folder."""
-        import os
-        from scriptorum.boot import ENV_FOLDER
-        folder = os.environ.get(ENV_FOLDER)
-        if folder and Path(folder).name == running and Path(folder).parent == self.versions.root:
-            return running
-        return None
 
     @Slot(result=str)
     def useMovedAddress(self) -> str:
-        """F22: the signed update file said the address has moved, and the
-        author answered Yes: the new address goes into the Update address field."""
-        from scriptorum.core import updates
-        moved = self.update_moved
-        if not updates.address_ok(moved or ""):
-            return _json({"ok": False})
-        self.session.app_settings.update({"update_address": moved})
-        self.update_moved = None
-        return _json({"ok": True, "app": self._app_info()})
+        return _json(self.api.app.use_moved_address())
 
     @Slot(str, result=str)
     def setUpdateAddress(self, address: str) -> str:
-        """F22: Settings ▸ Application ▸ Updates ▸ Update address. Only https
-        is accepted; an empty field (Use built-in address) means UPDATE_URL."""
-        from scriptorum.core import updates
-        address = (address or "").strip()
-        if address and not updates.address_ok(address):
-            return _json({"ok": False, "error": self.session.t("update.addressRefused")})
-        self.session.app_settings.update({"update_address": address})
-        return _json({"ok": True, "app": self._app_info()})
+        return _json(self.api.app.set_update_address(address))
 
     @Slot(result=str)
     def versionInfo(self) -> str:
-        """F22: the version running, the installed app's own, the one Help ▸
-        Go back to version would run, and what the start-up step has to say."""
-        from scriptorum import __version__
-        from scriptorum.boot import builtin_version
-        builtin = builtin_version()
-        try:
-            back = self.versions.back_target(__version__, builtin)
-        except OSError:
-            back = None
-        notice, self.start_notice = self.start_notice, None
-        return _json({"running": __version__, "builtin": builtin, "back": back, "notice": notice})
+        return _json(self.api.app.version_info())
 
     @Slot(result=str)
     def goBack(self) -> str:
-        """F22.5: Help ▸ Go back to version X. The next start runs X."""
-        from scriptorum import __version__
-        from scriptorum.boot import builtin_version
-        target = self.versions.go_back(__version__, builtin_version())
-        return _json({"ok": target is not None, "version": target})
+        return _json(self.api.app.go_back())
 
     @Slot(result=str)
     def weeklyUpdateCheck(self) -> str:
-        """F21.4: at start, only when the author turned on Check once a week
-        and a week has passed since the last check."""
-        from scriptorum.core import updates
-
-        due = updates.weekly_due(self.session.app_settings) and updates.address_set(self.update_address())
+        due = self.api.app.weekly_check_due()
         if due:
             self._run_update_check(auto=True)
         return _json({"ok": True, "started": due})
 
     @Slot(result=str)
     def updatePrompt(self) -> str:
-        """F21.4: at first start Scriptorum asks once whether to check weekly."""
-        asked = bool(self.session.app_settings.get("update_asked"))
-        return _json({"ask": self.ask_updates_at_start and not asked})
+        return _json(self.api.app.update_prompt(self.ask_updates_at_start))
 
     @Slot(bool, result=str)
     def answerUpdatePrompt(self, weekly: bool) -> str:
-        self.session.app_settings.update({"update_asked": True, "update_weekly": bool(weekly)})
-        return _json(self._app_info())
+        return _json(self.api.app.answer_update_prompt(weekly))
+
+    @Slot(result=str)
+    def offlineNotice(self) -> str:
+        """F25.2: the one-time offline message, shown where the update question was."""
+        return _json(self.api.app.offline_notice(self.ask_updates_at_start))
+
+    @Slot(result=str)
+    def offlineNoticeSeen(self) -> str:
+        return _json(self.api.app.offline_notice_seen())
 
     @Slot(result=str)
     def openDownloadPage(self) -> str:
-        """The button opens the download page from the last update file in the
-        computer's own web browser; Scriptorum downloads nothing (F21.3)."""
-        from PySide6.QtGui import QDesktopServices
-
-        page = self.update_download
+        """The download page from the last update file opens in the computer's
+        own web browser; Scriptorum downloads nothing (F21.3)."""
+        page = self.api.app.download_page()
         if not page:
             return _json({"ok": False})
         self.opened_downloads.append(page)
-        if not getattr(self.window, "headless_test", False):
-            QDesktopServices.openUrl(QUrl(page))
+        self._open_in_browser(QUrl(page))
         return _json({"ok": True})
 
-    # --- the window's zoom (F9, M6-0.6.10, issue #16) ---------------------------
+    # --- the window's zoom (F9, issue #16) and full screen (F9) -------------------------
     @Slot(result=str)
     def appZoom(self) -> str:
-        return _json({"zoom": int(self.session.app_settings.get("app_zoom") or 100)})
+        return _json(self.api.app.zoom())
 
     @Slot(int, result=str)
     def setAppZoom(self, percent: int) -> str:
         """Store the window's zoom (one of the steps, F18) and show it."""
-        self.session.app_settings.update({"app_zoom": int(percent)})
-        zoom = int(self.session.app_settings.get("app_zoom") or 100)
+        reply = self.api.app.set_zoom(percent)
         if self.window is not None and hasattr(self.window, "apply_app_zoom"):
-            zoom = self.window.apply_app_zoom()
-        return _json({"zoom": zoom})
+            reply = {"zoom": self.window.apply_app_zoom()}
+        return _json(reply)
 
-    # --- full screen (F9, M6 part B) ---------------------------------------------
     @Slot(bool, result=str)
     def setFullScreen(self, on: bool) -> str:
         if self.window is not None and hasattr(self.window, "set_full_screen"):
@@ -531,12 +434,9 @@ class Bridge(QObject):
     @Slot(result=str)
     def openCrashLogFolder(self) -> str:
         """F18: the button that opens the crash-log folder (on this computer)."""
-        from PySide6.QtGui import QDesktopServices
-        from scriptorum import paths
-
-        if not getattr(self.window, "headless_test", False):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.logs_dir())))
-        return _json({"ok": True, "path": str(paths.logs_dir())})
+        folder = self.api.app.crash_log_folder()
+        self._open_in_browser(QUrl.fromLocalFile(folder))
+        return _json({"ok": True, "path": folder})
 
     def set_system_dark(self, dark: bool) -> None:
         self.system_dark = bool(dark)
@@ -545,46 +445,17 @@ class Bridge(QObject):
 
     @Slot(result=str)
     def openExample(self) -> str:
-        """F20: open the example adventure as a copy in the user's documents."""
-        tab = self._tab_for_new_document()
-        try:
-            path = tab.open_example()
-        except Exception as exc:  # noqa: BLE001
-            return self._error(exc)
-        tab.recent.add(path)
-        self._changed()
-        return _json({"ok": True, "path": str(path)})
+        return _json(self.api.adventure.open_example())
 
     @Slot(str, result=str)
     def setTheme(self, theme_id: str) -> str:
-        """F8: the theme is chosen on the adventure settings page; the preview
-        re-renders at once."""
-        try:
-            info = self.session.set_theme(theme_id)
-        except ValueError as exc:
-            return self._error(exc)
-        self._changed()
-        return _json(info)
+        return _json(self.api.adventure.set_theme(theme_id))
 
-    # --- module manager (F14; M6 part A) -----------------------------------------
-    def _modules_changed(self, extra: Optional[dict] = None) -> str:
-        """After a module is installed, enabled, disabled or removed: every
-        open adventure checks its modules again, and the lists are sent back."""
-        changed = False
-        for tab in self.sessions:
-            changed = tab.refresh_modules() or changed
-        if changed:
-            self._changed()
-            self._title_changed()
-        info = self._app_info()
-        info["ok"] = True
-        info.update(extra or {})
-        return _json(info)
-
+    # --- the module manager (F14) ---------------------------------------------------------
     @Slot(result=str)
     def installModuleDialog(self) -> str:
         """Settings ▸ Modules ▸ Install module…: choose a .scmod file."""
-        t = self.session.t
+        t = self.api.app.text
         path, _ = QFileDialog.getOpenFileName(self.window, t("dialog.installModuleTitle"), "", t("dialog.scmodFilter"))
         if not path:
             return _json({"ok": False, "cancelled": True})
@@ -592,37 +463,112 @@ class Bridge(QObject):
 
     @Slot(str, result=str)
     def installModulePath(self, path: str) -> str:
-        """Install a module from a .scmod file with every check of 9.7."""
+        reply = self.api.modules.install(path)
+        if reply.get("extension"):
+            reply["path"] = path   # F25.5: the window asks first, then installs this file
+        return _json(reply)
+
+    # --- extensions (F25, 0.7.4) ----------------------------------------------------------------
+    def _extension_notice(self, notice: dict) -> None:
+        if not self.closed:
+            self.extensionNotice.emit(_json(notice))
+
+    def start_extensions(self) -> None:
+        """F25.10: the extensions the author switched on start with the window."""
+        for info in self.api.extensions.list()["extensions"]:
+            if info["on"]:
+                self.api.extensions.set_on(info["id"], True)
+
+    @Slot(result=str)
+    def extensionList(self) -> str:
+        return _json(self.api.extensions.list())
+
+    @Slot(result=str)
+    def extensionContributions(self) -> str:
+        return _json(self.api.extensions.contributions())
+
+    @Slot(result=str)
+    def extensionFindings(self) -> str:
+        return _json(self.api.extensions.findings())
+
+    @Slot(result=str)
+    def inspectExtensionDialog(self) -> str:
+        """Settings ▸ Extensions ▸ Install extension…: choose a .scmod file."""
+        t = self.api.app.text
+        path, _ = QFileDialog.getOpenFileName(self.window, t("ext.installTitle"), "", t("dialog.scmodFilter"))
+        if not path:
+            return _json({"ok": False, "cancelled": True})
+        return self.inspectExtension(path)
+
+    @Slot(str, result=str)
+    def inspectExtension(self, path: str) -> str:
+        reply = self.api.extensions.inspect(path)
+        reply["path"] = path
+        return _json(reply)
+
+    @Slot(str, bool, result=str)
+    def installExtension(self, path: str, agreed: bool) -> str:
+        return _json(self.api.extensions.install(path, agreed))
+
+    @Slot(str, bool, result=str)
+    def setExtensionOn(self, ext_id: str, on: bool) -> str:
+        return _json(self.api.extensions.set_on(ext_id, on))
+
+    @Slot(str, str, str, result=str)
+    def setExtensionSetting(self, ext_id: str, key: str, value: str) -> str:
+        return _json(self.api.extensions.set_setting(ext_id, key, value))
+
+    @Slot(str, result=str)
+    def removeExtension(self, ext_id: str) -> str:
+        return _json(self.api.extensions.remove(ext_id))
+
+    # --- the Extensions tab, suggestions and pictures (F25, 0.7.5) ---------------------------------
+    @Slot(result=str)
+    def extensionTab(self) -> str:
+        return _json(self.api.extensions.tab_info())
+
+    @Slot(str, result=str)
+    def acceptSuggestion(self, suggestion_id: str) -> str:
+        return _json(self.api.extensions.accept_suggestion(suggestion_id))
+
+    @Slot(str, result=str)
+    def rejectSuggestion(self, suggestion_id: str) -> str:
+        return _json(self.api.extensions.reject_suggestion(suggestion_id))
+
+    @Slot(str, bool, result=str)
+    def usePicture(self, picture_id: str, as_portrait: bool) -> str:
+        return _json(self.api.extensions.use_picture(picture_id, as_portrait))
+
+    @Slot(str, result=str)
+    def regeneratePicture(self, picture_id: str) -> str:
+        return _json(self.api.extensions.regenerate_picture(picture_id))
+
+    @Slot(str, result=str)
+    def cancelPicture(self, picture_id: str) -> str:
+        return _json(self.api.extensions.cancel_picture(picture_id))
+
+    @Slot(str, str, str, result=str)
+    def runExtension(self, ext_id: str, command: str, context: str) -> str:
+        """The author clicked an extension's item; the answer arrives as ``extensionNotice``."""
         try:
-            result = modmanager.install(self.session.library, Path(path), self.session.localize)
-        except Exception as exc:  # noqa: BLE001 - refused, with the reason in plain words
-            return self._error(exc)
-        module = result["module"]
-        return self._modules_changed({"status": result["status"],
-                                      "module": {"id": module.id, "version": module.version, "name": module.name}})
+            data = json.loads(context or "{}")
+        except ValueError:
+            data = {}
+        return _json(self.api.extensions.run(ext_id, command, data if isinstance(data, dict) else {}))
 
     @Slot(str, str, bool, result=str)
     def setModuleDisabled(self, module_id: str, version: str, disabled: bool) -> str:
-        try:
-            modmanager.set_disabled(self.session.library, module_id, version, disabled, self.session.app_settings)
-        except Exception as exc:  # noqa: BLE001
-            return self._error(exc)
-        return self._modules_changed()
+        return _json(self.api.modules.set_disabled(module_id, version, disabled))
 
     @Slot(str, str, result=str)
     def removeModule(self, module_id: str, version: str) -> str:
-        try:
-            modmanager.remove(self.session.library, module_id, version, self.session.app_settings)
-        except Exception as exc:  # noqa: BLE001
-            return self._error(exc)
-        return self._modules_changed()
+        return _json(self.api.modules.remove(module_id, version))
 
     @Slot(str, str, result=str)
     def saveModuleDialog(self, module_id: str, version: str) -> str:
         """Save as .scmod file…: one file to send along with an adventure."""
-        t = self.session.t
-        module = self.session.library.get(module_id, version, include_disabled=True)
-        suggested = modmanager.default_file_name(module) if module else "module.scmod"
+        t = self.api.app.text
+        suggested = self.api.modules.file_name(module_id, version)
         path, _ = QFileDialog.getSaveFileName(self.window, t("dialog.saveModuleTitle"), suggested, t("dialog.scmodFilter"))
         if not path:
             return _json({"ok": False, "cancelled": True})
@@ -630,128 +576,69 @@ class Bridge(QObject):
 
     @Slot(str, str, str, result=str)
     def saveModuleTo(self, module_id: str, version: str, path: str) -> str:
-        try:
-            written = modmanager.save_as_scmod(self.session.library, module_id, version, Path(path))
-        except Exception as exc:  # noqa: BLE001
-            return self._error(exc)
-        return _json({"ok": True, "path": str(written)})
+        return _json(self.api.modules.save_to(module_id, version, path))
 
-    # --- module versions (F14.3; M6 part A) ---------------------------------------
     @Slot(str, str, result=str)
     def previewVersion(self, which: str, version: str) -> str:
-        """Try another installed version in the preview; nothing changes yet."""
-        try:
-            info = self.session.preview_version(which, version)
-        except Exception as exc:  # noqa: BLE001
-            return self._error(exc)
-        self._changed()
-        return _json(info)
+        return _json(self.api.modules.preview_version(which, version))
 
     @Slot(result=str)
     def applyVersion(self) -> str:
-        info = self.session.apply_version_preview()
-        self._changed()
-        self._title_changed()
-        return _json(info)
+        return _json(self.api.modules.apply_version())
 
     @Slot(str, str, result=str)
     def gameSystemFit(self, gs_id: str, version: str) -> str:
-        """F14 (Change game system, M6-0.6.9): what does not fit, and the
-        themes offered for the new game system, before the preview."""
-        try:
-            return _json({"ok": True, **self.session.game_system_fit(gs_id, version)})
-        except Exception as exc:  # noqa: BLE001
-            return self._error(exc)
+        return _json(self.api.modules.game_system_fit(gs_id, version))
 
     @Slot(str, result=str)
     def previewGameSystem(self, request: str) -> str:
-        """F14 (M6-0.6.9): try another game system in the preview; Apply and
-        Cancel are the version bar's (applyVersion, cancelVersion)."""
-        data = json.loads(request)
-        try:
-            info = self.session.preview_game_system(data["id"], data["version"], data.get("theme", ""),
-                                                    data.get("themeVersion", ""))
-        except Exception as exc:  # noqa: BLE001
-            return self._error(exc)
-        self._changed()
-        return _json(info)
+        return _json(self.api.modules.preview_game_system(json.loads(request)))
 
     @Slot(result=str)
     def cancelVersion(self) -> str:
-        info = self.session.cancel_version_preview()
-        self._changed()
-        return _json(info)
+        return _json(self.api.modules.cancel_version())
 
-    # --- tabs (F2.2) -------------------------------------------------------------
+    # --- tabs (F2.2) -----------------------------------------------------------------------
     @Slot(result=str)
     def tabs(self) -> str:
-        return _json([
-            {
-                "id": s.id,
-                "title": s.adventure.title if s.adventure else None,
-                "dirty": s.dirty,
-                "readOnly": s.read_only,
-                "active": i == self.active,
-            }
-            for i, s in enumerate(self.sessions)
-        ])
+        return _json(self.api.adventure.tabs())
 
     @Slot(str, result=str)
     def switchTab(self, tab_id: str) -> str:
-        for index, tab in enumerate(self.sessions):
-            if tab.id == tab_id:
-                self.active = index
-                self._title_changed()
-                self.requestBuild()
-                return _json({"ok": True})
-        return _json({"ok": False})
+        reply = self.api.adventure.switch_tab(tab_id)
+        if reply["ok"]:
+            self.requestBuild()
+        return _json(reply)
 
     @Slot(str, result=str)
     def closeTab(self, tab_id: str) -> str:
         previous = self.active
-        if json.loads(self.switchTab(tab_id)).get("ok") is not True:
+        if not self.api.adventure.switch_tab(tab_id)["ok"]:
             return _json({"ok": False})
         if not self.confirm_discard():
             self.active = previous
             return _json({"ok": False, "cancelled": True})
-        tab = self.session
         closing = self.active
-        tab.close()
-        if len(self.sessions) == 1:
-            self.sessions[0] = tab.sibling(tab.work_dir)
-            self.active = 0
-        else:
-            self.sessions.pop(closing)
+        single = len(self.sessions) == 1
+        self.api.adventure.close_active_tab()
+        if not single:
             if previous > closing:
                 previous -= 1
             elif previous == closing:
                 previous = max(0, closing - 1)
             self.active = min(previous, len(self.sessions) - 1)
         self._title_changed()
+        self.requestBuild()
         return _json({"ok": True})
 
-    # --- files --------------------------------------------------------------------
+    # --- files ---------------------------------------------------------------------------------
     @Slot(str, result=str)
     def newAdventure(self, request: str) -> str:
-        data = json.loads(request)
-        reuse = self.session.adventure is None
-        tab = self._tab_for_new_document()
-        try:
-            tab.new(
-                data["title"], data["gameSystem"]["id"], data["gameSystem"]["version"],
-                data["theme"]["id"], data["theme"]["version"],
-            )
-        except (ScavError, ModuleError) as exc:
-            if not reuse:
-                self.sessions.pop(self.active)
-                self.active = len(self.sessions) - 1
-            return self._error(exc)
-        self._title_changed()
-        return _json({"ok": True})
+        return _json(self.api.adventure.new(json.loads(request)))
 
     @Slot(result=str)
     def openDialog(self) -> str:
-        t = self.session.t
+        t = self.api.app.text
         path, _ = QFileDialog.getOpenFileName(self.window, t("dialog.openTitle"), "", t("dialog.scavFilter"))
         if not path:
             return _json({"ok": False, "cancelled": True})
@@ -760,46 +647,28 @@ class Bridge(QObject):
     @Slot(result=str)
     def openFolderDialog(self) -> str:
         """F2.4: open an unpacked adventure folder."""
-        path = QFileDialog.getExistingDirectory(self.window, self.session.t("dialog.openFolderTitle"))
+        path = QFileDialog.getExistingDirectory(self.window, self.api.app.text("dialog.openFolderTitle"))
         if not path:
             return _json({"ok": False, "cancelled": True})
         return self.openPath(path)
 
     @Slot(str, result=str)
     def openPath(self, path: str) -> str:
-        wanted = Path(path).resolve()
-        for index, tab in enumerate(self.sessions):
-            if tab.adventure is not None and tab.adventure.path is not None and Path(tab.adventure.path).resolve() == wanted:
-                self.active = index  # already open in this window: show its tab
-                self._title_changed()
-                return _json({"ok": True, "switched": True})
-        reuse = self.session.adventure is None
-        tab = self._tab_for_new_document()
-        try:
-            tab.open(Path(path))
-        except (ScavError, ModuleError) as exc:
-            if not reuse:
-                self.sessions.pop(self.active)
-                self.active = len(self.sessions) - 1
-            reply = self._error(exc)
-            self._show_error(json.loads(reply)["error"])
-            return reply
-        self._title_changed()
-        return _json({"ok": True, "readOnly": tab.read_only})
+        return self._reply(self.api.adventure.open(path), show_error=True)
 
     @Slot(result=str)
     def save(self) -> str:
-        if self.session.adventure is None:
+        if not self.api.adventure.is_open():
             return _json({"ok": False})
-        if self.session.adventure.path is None or self.session.read_only:
+        if self.api.adventure.needs_file_name():
             return self.saveAs()
-        return self.saveTo(str(self.session.adventure.path))
+        return self.saveTo(self.api.adventure.path())
 
     @Slot(result=str)
     def saveAs(self) -> str:
-        t = self.session.t
-        suggestion = (self.session.adventure.title or t("app.untitled")) + ".scav"
-        path, _ = QFileDialog.getSaveFileName(self.window, t("dialog.saveTitle"), suggestion, t("dialog.scavFilter"))
+        t = self.api.app.text
+        path, _ = QFileDialog.getSaveFileName(self.window, t("dialog.saveTitle"), self.api.adventure.save_suggestion(),
+                                              t("dialog.scavFilter"))
         if not path:
             return _json({"ok": False, "cancelled": True})
         return self.saveTo(path)
@@ -807,203 +676,138 @@ class Bridge(QObject):
     @Slot(result=str)
     def saveAsFolderDialog(self) -> str:
         """F2.4: save as an unpacked folder, for authors who use Git."""
-        path = QFileDialog.getExistingDirectory(self.window, self.session.t("dialog.saveFolderTitle"))
+        path = QFileDialog.getExistingDirectory(self.window, self.api.app.text("dialog.saveFolderTitle"))
         if not path:
             return _json({"ok": False, "cancelled": True})
         return self.saveToFolder(path)
 
     @Slot(str, result=str)
     def saveTo(self, path: str) -> str:
-        return self._save(path, None)
+        return self._reply(self.api.adventure.save_to(path, None), show_error="error.save.failed")
 
     @Slot(str, result=str)
     def saveToFolder(self, path: str) -> str:
-        return self._save(path, True)
+        return self._reply(self.api.adventure.save_to(path, True), show_error="error.save.failed")
 
-    def _save(self, path: str, as_folder: Optional[bool]) -> str:
-        try:
-            target = self.session.save(Path(path), as_folder=as_folder)
-        except (ScavError, OSError) as exc:
-            detail = self.session.t(exc.key, **exc.details) if isinstance(exc, ScavError) else str(exc)
-            message = self.session.t("error.save.failed", message=detail)
-            self._show_error(message)
-            return _json({"ok": False, "error": message})
-        self._title_changed()
-        return _json({"ok": True, "path": str(target)})
-
-    # --- work protection (F2.5–F2.8) ------------------------------------------------
+    # --- work protection (F2.5–F2.8) ---------------------------------------------------------
     @Slot(result=str)
     def recoveries(self) -> str:
-        return _json(self.session.recovery.orphans())
+        return _json(self.api.adventure.recoveries())
 
     @Slot(str, result=str)
     def restoreRecovery(self, session_id: str) -> str:
-        meta = next((m for m in self.session.recovery.orphans() if m["session"] == session_id), None)
-        if meta is None:
-            return _json({"ok": False})
-        tab = self._tab_for_new_document()
-        tab.restore_recovery(meta)
-        self._title_changed()
-        return _json({"ok": True})
+        return _json(self.api.adventure.restore_recovery(session_id))
 
     @Slot(str, result=str)
     def discardRecovery(self, session_id: str) -> str:
-        self.session.recovery.remove(session_id)
-        return _json({"ok": True})
+        return _json(self.api.adventure.discard_recovery(session_id))
 
     def snapshot_tick(self) -> None:
-        if self.closed:
-            return
-        for tab in self.sessions:
-            tab.maybe_snapshot()
+        if not self.closed:
+            self.api.adventure.snapshot_tick()
 
     @Slot(result=str)
     def snapshots(self) -> str:
-        return _json(self.session.snapshot_list())
+        return _json(self.api.adventure.snapshots())
 
     @Slot(str, result=str)
     def revertTo(self, snapshot_id: str) -> str:
-        try:
-            self.session.revert(snapshot_id)
-        except OSError as exc:
-            return _json({"ok": False, "error": str(exc)})
-        self._title_changed()
-        self.requestBuild()
-        return _json({"ok": True})
+        return _json(self.api.adventure.revert_to(snapshot_id))
 
-    # --- chapters ---------------------------------------------------------------------
+    # --- chapters ----------------------------------------------------------------------------
     @Slot(int, result=str)
     def chapter(self, index: int) -> str:
-        return _json(self.session.chapter(index))
+        return _json(self.api.adventure.chapter(index))
 
     @Slot(int, str, result=str)
     def setChapterText(self, index: int, text: str) -> str:
-        reply = self.session.set_chapter_text(index, text)
-        self._title_changed()
-        self.requestBuild()
-        return _json(reply)
+        return _json(self.api.adventure.set_chapter_text(index, text))
 
     @Slot(int, str, result=str)
     def setChapterDoc(self, index: int, doc: str) -> str:
-        reply = self.session.set_chapter_doc(index, json.loads(doc))
-        self._title_changed()
-        self.requestBuild()
-        return _json(reply)
+        return _json(self.api.adventure.set_chapter_doc(index, json.loads(doc)))
 
     @Slot(str, result=str)
     def blockSource(self, block: str) -> str:
-        """F4.1 Hybrid mode: the source of one block, as Source mode shows it."""
-        from scriptorum.core import source
+        return _json(self.api.adventure.block_source(json.loads(block)))
 
-        return _json({"text": source.block_text(json.loads(block), self.session.kinds())})
-
-    # --- settings page (F7.3, F7.9) -------------------------------------------------------
+    # --- the settings page (F7.3, F7.9) ---------------------------------------------------
     @Slot(result=str)
     def settings(self) -> str:
-        return _json(self.session.settings_info())
+        return _json(self.api.adventure.settings())
 
     @Slot(str, result=str)
     def setSettings(self, data: str) -> str:
-        reply = self.session.set_settings(json.loads(data))
-        self._title_changed()
-        self.requestBuild()
-        return _json(reply)
+        return _json(self.api.adventure.set_settings(json.loads(data)))
 
-    # --- find and replace (F4.7) -------------------------------------------------------
+    # --- find and replace (F4.7) ------------------------------------------------------------
     @Slot(str, result=str)
     def find(self, request: str) -> str:
         data = json.loads(request)
-        return _json(self.session.find(data.get("query", ""), bool(data.get("matchCase"))))
+        return _json(self.api.adventure.find(data.get("query", ""), bool(data.get("matchCase"))))
 
     @Slot(str, result=str)
     def replaceAll(self, request: str) -> str:
         data = json.loads(request)
-        count = self.session.replace_all(data.get("query", ""), data.get("replacement", ""), bool(data.get("matchCase")))
-        if count:
-            self._title_changed()
-            self.requestBuild()
-        return _json({"ok": True, "count": count})
+        return _json(self.api.adventure.replace_all(data.get("query", ""), data.get("replacement", ""),
+                                                    bool(data.get("matchCase"))))
 
-    # --- images and fonts (F4.6, F11) -----------------------------------------------------
+    # --- images, portraits and fonts (F4.6, 11.4, F11) -----------------------------------------
     @Slot(str, str, result=str)
     def addImageData(self, name: str, data: str) -> str:
-        """An image dropped into the editor, as base64 from the interface."""
-        try:
-            path = self.session.add_image(name, base64.b64decode(data.split(",", 1)[-1]))
-        except (ScavError, ValueError) as exc:
-            return self._error(exc)
-        self._title_changed()
-        return _json({"ok": True, "path": path})
+        return _json(self.api.adventure.add_image(name, data))
+
+    def _pick_file(self, title_key: str, filter_key: str) -> str:
+        t = self.api.app.text
+        path, _ = QFileDialog.getOpenFileName(self.window, t(title_key), "", t(filter_key))
+        return path
 
     @Slot(result=str)
     def addImageDialog(self) -> str:
-        t = self.session.t
-        path, _ = QFileDialog.getOpenFileName(self.window, t("dialog.imageTitle"), "", t("dialog.imageFilter"))
+        path = self._pick_file("dialog.imageTitle", "dialog.imageFilter")
         if not path:
             return _json({"ok": False, "cancelled": True})
-        try:
-            stored = self.session.add_image(Path(path).name, Path(path).read_bytes())
-        except (ScavError, OSError) as exc:
-            return self._error(exc)
-        self._title_changed()
-        return _json({"ok": True, "path": stored})
+        return _json(self.api.adventure.add_image_file(path))
 
     @Slot(result=str)
     def addPortraitDialog(self) -> str:
-        """11.4 (M6 part C): choose a person's portrait, JPEG or PNG only."""
-        t = self.session.t
+        """11.4: choose a person's portrait, JPEG or PNG only."""
         if self.pick_portrait is not None:  # the scenario tests stand in for the file dialog
             path = self.pick_portrait()
         else:
-            path, _ = QFileDialog.getOpenFileName(self.window, t("dialog.portraitTitle"), "", t("dialog.portraitFilter"))
+            path = self._pick_file("dialog.portraitTitle", "dialog.portraitFilter")
         if not path:
             return _json({"ok": False, "cancelled": True})
         return self.addPortraitPath(path)
 
     @Slot(str, result=str)
     def addPortraitPath(self, path: str) -> str:
-        try:
-            stored = self.session.add_portrait(Path(path).name, Path(path).read_bytes())
-        except (ScavError, OSError) as exc:
-            return self._error(exc)
-        self._title_changed()
-        return _json({"ok": True, "path": stored})
+        return _json(self.api.adventure.add_portrait_file(path))
 
     @Slot(result=str)
     def addFontDialog(self) -> str:
-        t = self.session.t
-        path, _ = QFileDialog.getOpenFileName(self.window, t("dialog.fontTitle"), "", t("dialog.fontFilter"))
+        path = self._pick_file("dialog.fontTitle", "dialog.fontFilter")
         if not path:
             return _json({"ok": False, "cancelled": True})
         return self.addFontPath(path)
 
     @Slot(str, result=str)
     def addFontPath(self, path: str) -> str:
-        try:
-            result = self.session.add_font(Path(path))
-        except FontRefused as exc:
-            return self._error(exc)
-        self._title_changed()
-        return _json({"ok": True, **result})
+        return _json(self.api.adventure.add_font_file(path))
 
     @Slot(result=str)
     def fonts(self) -> str:
-        return _json(self.session.font_list())
+        return _json(self.api.adventure.fonts())
 
     @Slot(str, result=str)
     def imageUrl(self, path: str) -> str:
-        """A local URL for showing an adventure image in the editor."""
-        data = self.session.adventure.files.get(path.lstrip("/")) if self.session.adventure else None
-        if data is None:
+        """A local address for showing an adventure image in the editor."""
+        file = self.api.adventure.image_file(path)
+        if file is None:
             return _json({"ok": False})
-        folder = self.session.work_dir / "editor-images"
-        folder.mkdir(parents=True, exist_ok=True)
-        file = folder / Path(path).name
-        if not file.is_file() or file.read_bytes() != data:
-            file.write_bytes(data)
-        return _json({"ok": True, "url": QUrl.fromLocalFile(str(file)).toString()})
+        return _json({"ok": True, "url": _url(file)})
 
-    # --- spell check (F4.8) ---------------------------------------------------------------
+    # --- spell check (F4.8) -----------------------------------------------------------------
     def _check_spell_ready(self) -> None:
         if self.closed:
             return
@@ -1013,66 +817,29 @@ class Bridge(QObject):
 
     @Slot(str, result=str)
     def spell(self, words: str) -> str:
-        # F9: a part that failed never waits silently; spell check says it
-        # is unavailable instead of waiting for dictionaries that never load.
-        if self.spelling.ready and self.spelling.unavailable:
-            return _json({"ready": True, "wrong": [], "unavailable": self.session.t("spell.unavailable")})
-        # F17.2 (M5): the adventure's document language chooses the dictionaries.
-        lang = (self.session.adventure.settings.get("language") if self.session.adventure else None) or ""
-        languages = {"sv": ("sv",), "en": ("en", "en-gb")}.get(lang)
-        return _json({"ready": self.spelling.ready, "wrong": self.spelling.misspelled(json.loads(words), languages)})
+        return _json(self.api.app.spell(json.loads(words)))
 
-    # --- the start-up checks in the main window (F9, M5) -----------------------------------
-    def _check_lines(self, results) -> list:
-        from scriptorum.core.startup import line_text
+    @Slot(str, result=str)
+    def suggest(self, word: str) -> str:
+        """Suggestions arrive later through the ``suggestions`` signal."""
+        self._in_background(lambda: self.api.app.suggest(word), self._suggestDone)
+        return _json({"ok": True})
 
-        table = self.session.strings.table
-        return [{**r.to_json(), "text": line_text(table, r)} for r in results]
-
+    # --- the start-up checks in the main window (F9) -----------------------------------------
     @Slot(result=str)
     def startupReport(self) -> str:
-        """What the start-up window found missing: the quiet bar names it."""
-        problem = self.open_problem
-        self.open_problem = None
-        return _json({
-            "problems": self._check_lines(self.startup_results),
-            "openError": json.loads(self._error(problem))["error"] if problem is not None else "",
-        })
+        return _json(self.api.app.startup_report())
 
     @Slot(result=str)
     def checkInstallation(self) -> str:
-        """Help ▸ Check installation: the same list as the start-up window, on demand."""
-        from scriptorum import __version__
-        from scriptorum.core.startup import Startup, report_text
-
-        startup = Startup()
-        results = startup.run()
-        self.startup_results = startup.failed()
-        if startup.spelling is not None and not startup.spelling.unavailable and self.spelling.unavailable:
-            self.spelling = startup.spelling  # the missing part was put back
-        return _json({
-            "ok": startup.ok,
-            "results": self._check_lines(results),
-            "report": report_text(self.session.strings.table, results, __version__),
-            "version": __version__,
-        })
+        return _json(self.api.app.check_installation())
 
     @Slot(result=str)
     def themeSelfTest(self) -> str:
-        """Help ▸ Check installation: the slower theme self-test (9.7.5). The
-        result arrives later through the ``selfTestFinished`` signal."""
-        session = self.session
-
-        def work():
-            from scriptorum.core.startup import theme_self_test
-
-            try:
-                reply = _json({"ok": True, "lines": theme_self_test(session)})
-            except Exception as exc:  # noqa: BLE001
-                reply = _json({"ok": False, "error": str(exc), "lines": []})
-            if not self.closed:
-                self._selfTestDone.emit(reply)
-        threading.Thread(target=work, daemon=True).start()
+        """The slower theme self-test (9.7.5); the result arrives later
+        through the ``selfTestFinished`` signal."""
+        tab = self.api.adventure.tabs()[self.active]["id"]
+        self._in_background(lambda: self.api.app.theme_self_test(tab), self._selfTestDone)
         return _json({"ok": True})
 
     @Slot(str, result=str)
@@ -1083,10 +850,10 @@ class Bridge(QObject):
         QGuiApplication.clipboard().setText(text)
         return _json({"ok": True})
 
-    # --- preview zoom, remembered for each adventure outside its file (F7.2, M5) -----------
+    # --- the preview's zoom, kept for each adventure (F7.2) -------------------------------------
     @Slot(result=str)
     def previewZoom(self) -> str:
-        return _json({"zoom": self.view_state.get_zoom(self.session.snapshot_key())})
+        return _json(self.api.app.preview_zoom())
 
     @Slot(str, result=str)
     def setPreviewZoom(self, value: str) -> str:
@@ -1094,23 +861,13 @@ class Bridge(QObject):
             wanted = json.loads(value)
         except json.JSONDecodeError:
             wanted = value
-        return _json({"zoom": self.view_state.set_zoom(self.session.snapshot_key(), wanted)})
+        return _json(self.api.app.set_preview_zoom(wanted))
 
-    @Slot(str, result=str)
-    def suggest(self, word: str) -> str:
-        """Suggestions arrive later through the ``suggestions`` signal."""
-        def work():
-            reply = _json({"word": word, "suggestions": self.spelling.suggest(word)})
-            if not self.closed:
-                self._suggestDone.emit(reply)
-        threading.Thread(target=work, daemon=True).start()
-        return _json({"ok": True})
-
-    # --- building and export ---------------------------------------------------------
+    # --- building and export ---------------------------------------------------------------
     @Slot(result=str)
     def requestBuild(self) -> str:
         """Restart the 0.3 s timer; the build runs when typing pauses."""
-        if self.session.adventure is not None:
+        if self.api.adventure.is_open():
             self.last_request_time = time.monotonic()
             self._timer.start()
         return _json({"ok": True})
@@ -1127,22 +884,15 @@ class Bridge(QObject):
         seq = self._build_seq
         self.buildStarted.emit()
         session = self.session
+        player, breaks = self.player_preview, self.show_breaks
 
         def work():
-            element_map = []
-            try:
-                # SVG: vector pages, four times faster than PNG on long adventures.
-                player = self.player_preview
-                result = session.build("svg", player=player, show_breaks=self.show_breaks and not player)
-                if result.ok and not player:
-                    element_map = session.element_map()
-            except Exception as exc:  # never leave the interface waiting
-                result = BuildResult(False, errors=[Problem("error.build.typst", message=str(exc))])
+            result, element_map = self.api.build._run(session, player, breaks)
             self._buildDone.emit(result, (session, element_map), seq)
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _finish_build(self, result: BuildResult, extra, seq: int) -> None:
+    def _finish_build(self, result, extra, seq: int) -> None:
         self._building = False
         if self.closed:
             return
@@ -1151,246 +901,154 @@ class Bridge(QObject):
             self._rebuild = False
             self._start_build()
             return
-        session = self.session
-        if result.ok:
+        payload = self.api.build._finish(self.session, result, element_map, seq)
+        if payload["ok"]:
             self.element_map = element_map
-            folder = session.work_dir / "preview"
-            shutil.rmtree(folder, ignore_errors=True)
-            folder.mkdir(parents=True, exist_ok=True)
-            urls = []
-            for number, page in enumerate(result.output, start=1):
-                file = folder / f"page-{seq}-{number}.svg"
-                file.write_bytes(page if isinstance(page, bytes) else page.encode("utf-8"))
-                urls.append(QUrl.fromLocalFile(str(file)).toString())
-            payload = {
-                "ok": True, "pages": urls,
-                "warnings": [session.problem_json(w) for w in result.warnings],
-                "seconds": result.seconds,
-                "elements": element_map,
-            }
-        else:
-            payload = {"ok": False, "errors": [session.problem_json(e) for e in result.errors]}
+            payload = {"ok": True, "pages": [_url(f) for f in payload.pop("files")], **payload}
         self.last_build_payload = payload  # F7.2 (M5): for the separate preview window
         self.buildFinished.emit(_json(payload))
 
+    def _save_dialog(self, title_key: str, suggestion: str) -> str:
+        t = self.api.app.text
+        path, _ = QFileDialog.getSaveFileName(self.window, t(title_key), suggestion, t("dialog.pdfFilter"))
+        return path
+
     @Slot(result=str)
     def exportDialog(self) -> str:
-        if self.session.adventure is None:
+        suggestion = self.api.adventure.export_suggestion("adventure")
+        if suggestion is None:
             return _json({"ok": False})
-        t = self.session.t
-        base = self.session.adventure.path
-        suggestion = str(base.with_suffix(".pdf")) if base else (self.session.adventure.title or "adventure") + ".pdf"
-        path, _ = QFileDialog.getSaveFileName(self.window, t("dialog.exportTitle"), suggestion, t("dialog.pdfFilter"))
+        path = self._save_dialog("dialog.exportTitle", suggestion["path"])
         if not path:
             return _json({"ok": False, "cancelled": True})
         return self.exportTo(path)
 
     @Slot(str, result=str)
     def exportTo(self, path: str) -> str:
-        try:
-            reply = self.session.export_pdf(Path(path))
-        except OSError as exc:
-            message = self.session.t("error.export.failed", message=str(exc))
-            self._show_error(message)
-            return _json({"ok": False, "error": message})
-        return _json(reply)
+        return self._reply(self.api.build.export(path, "full"), show_error="error.export.failed")
 
     @Slot(result=str)
     def exportHandoutsDialog(self) -> str:
         """F7.6.2: the player PDF, with only the handouts (F6.2)."""
-        if self.session.adventure is None:
+        suggestion = self.api.adventure.export_suggestion("handouts")
+        if suggestion is None:
             return _json({"ok": False})
-        t = self.session.t
-        base = self.session.adventure.path
-        name = (base.stem if base else (self.session.adventure.title or "adventure")) + " - " + t("export.handoutsSuffix") + ".pdf"
-        suggestion = str(base.with_name(name)) if base else name
-        path, _ = QFileDialog.getSaveFileName(self.window, t("dialog.exportHandoutsTitle"), suggestion, t("dialog.pdfFilter"))
+        path = self._save_dialog("dialog.exportHandoutsTitle", suggestion["path"])
         if not path:
             return _json({"ok": False, "cancelled": True})
         return self.exportHandoutsTo(path)
 
     @Slot(str, result=str)
     def exportHandoutsTo(self, path: str) -> str:
-        try:
-            reply = self.session.export_pdf(Path(path), variant="handouts")
-        except OSError as exc:
-            message = self.session.t("error.export.failed", message=str(exc))
-            self._show_error(message)
-            return _json({"ok": False, "error": message})
-        return _json(reply)
+        return self._reply(self.api.build.export(path, "handouts"), show_error="error.export.failed")
 
     @Slot(str, result=str)
     def exportVariantDialog(self, variant: str) -> str:
         """F7.6 (M5): File ▸ Export ▸ Booklet PDF… and Print-shop PDF…"""
-        if self.session.adventure is None:
+        suggestion = self.api.adventure.export_suggestion("variant", variant)
+        if suggestion is None:
             return _json({"ok": False})
-        t = self.session.t
-        base = self.session.adventure.path
-        name = (base.stem if base else (self.session.adventure.title or "adventure")) + " - " + t(f"export.suffix.{variant}") + ".pdf"
-        suggestion = str(base.with_name(name)) if base else name
-        path, _ = QFileDialog.getSaveFileName(self.window, t(f"export.title.{variant}"), suggestion, t("dialog.pdfFilter"))
+        path = self._save_dialog(f"export.title.{variant}", suggestion["path"])
         if not path:
             return _json({"ok": False, "cancelled": True})
         return self.exportVariantTo(path, variant)
 
     @Slot(str, str, result=str)
     def exportVariantTo(self, path: str, variant: str) -> str:
-        try:
-            reply = self.session.export_pdf(Path(path), variant=variant)
-        except OSError as exc:
-            message = self.session.t("error.export.failed", message=str(exc))
-            self._show_error(message)
-            return _json({"ok": False, "error": message})
-        return _json(reply)
+        return self._reply(self.api.build.export(path, variant), show_error="error.export.failed")
 
-    # --- world-building (F3, F5, F6) ----------------------------------------------------
-    def _changed(self) -> None:
-        self._title_changed()
-        self.requestBuild()
-
-    def _world_call(self, work, changes: bool = True):
-        """Every codex, map and chart action. F3 (M6 part C4): codex actions
-        never fail silently. A refusal says why in plain words; an
-        unexpected error says so too, and its details go to the crash log in
-        the app's own folder (F2.11). Nothing is ever sent anywhere."""
-        if self.session.adventure is None:
-            return _json({"ok": False, "error": self.session.t("error.codex.noAdventure")})
-        try:
-            result = work()
-        except (WorldError, ScavError, ModuleError) as exc:
-            return self._error(exc)
-        except Exception as exc:  # noqa: BLE001
-            return self._unexpected(exc)
-        if changes:
-            self._changed()
-        return _json({"ok": True, **(result if isinstance(result, dict) else {"result": result})})
-
-    def _unexpected(self, exc: Exception) -> str:
-        from scriptorum.core.crashlog import write_crash_log
-        try:
-            log = write_crash_log(type(exc), exc, exc.__traceback__, getattr(self, "crash_folder", None))
-            self.last_crash_log = str(log)
-        except OSError:
-            self.last_crash_log = None
-        return _json({"ok": False, "error": self.session.t("error.codex.failed"), "logged": self.last_crash_log is not None})
-
+    # --- the codex, maps and the chart (F3, F5, F6) ---------------------------------------------
     @Slot(result=str)
     def codex(self) -> str:
-        if self.session.adventure is None:
-            return _json({"types": [], "entries": [], "maps": [], "handouts": []})
-        return _json(self.session.codex())
+        return _json(self.api.codex.codex())
 
     @Slot(str, result=str)
     def entry(self, entry_id: str) -> str:
-        return self._world_call(lambda: self.session.entry_info(entry_id), changes=False)
+        return _json(self.api.codex.entry(entry_id))
 
     @Slot(str, result=str)
     def convertInfo(self, request: str) -> str:
-        """F3 (M6 part C4): what Convert to codex entry offers for a block."""
         data = json.loads(request)
-        return self._world_call(lambda: self.session.convert_info(int(data.get("chapter", 0)), data.get("path", [])),
-                                changes=False)
+        return _json(self.api.codex.convert_info(data.get("chapter", 0), data.get("path", [])))
 
     @Slot(str, result=str)
     def convertToEntry(self, request: str) -> str:
         data = json.loads(request)
-        return self._world_call(lambda: self.session.convert_to_entry(
-            int(data.get("chapter", 0)), data.get("path", []), data.get("type", ""), data.get("link") or None))
+        return _json(self.api.codex.convert_to_entry(data.get("chapter", 0), data.get("path", []),
+                                                     data.get("type", ""), data.get("link")))
 
     @Slot(str, result=str)
     def createEntry(self, request: str) -> str:
         data = json.loads(request)
-        return self._world_call(lambda: self.session.create_entry(
-            data.get("type", ""), data.get("title", ""), data.get("fields"), data.get("folder", "")))
+        return _json(self.api.codex.create_entry(data.get("type", ""), data.get("title", ""), data.get("fields"),
+                                                 data.get("folder", "")))
 
     @Slot(str, result=str)
     def updateEntry(self, request: str) -> str:
         data = json.loads(request)
-        return self._world_call(lambda: self.session.update_entry(data["id"], data.get("data", {})))
+        return _json(self.api.codex.update_entry(data["id"], data.get("data", {})))
 
     @Slot(str, result=str)
     def deleteEntry(self, entry_id: str) -> str:
-        return self._world_call(lambda: self.session.delete_entry(entry_id))
+        return _json(self.api.codex.delete_entry(entry_id))
 
     @Slot(str, result=str)
     def saveCodexType(self, request: str) -> str:
-        return self._world_call(lambda: self.session.save_codex_type(json.loads(request)))
+        return _json(self.api.codex.save_type(json.loads(request)))
 
     @Slot(int, int, result=str)
     def sceneEntries(self, chapter: int, line: int) -> str:
-        if self.session.adventure is None:
-            return _json({"scene": None, "entries": []})
-        return _json(self.session.scene_entries(chapter, line if line > 0 else None))
+        return _json(self.api.codex.scene_entries(chapter, line))
 
     @Slot(result=str)
     def worldUndo(self) -> str:
-        done = self.session.world_undo()
-        if done:
-            self._changed()
-        return _json({"ok": done})
+        return _json(self.api.codex.undo())
 
     @Slot(str, result=str)
     def mapInfo(self, map_id: str) -> str:
-        try:
-            m = self.session.map_info(map_id)
-        except WorldError as exc:
-            return self._error(exc)
-        data = self.session.adventure.files.get(m["image"])
-        url = None
-        if data is not None:
-            folder = self.session.work_dir / "editor-maps"
-            folder.mkdir(parents=True, exist_ok=True)
-            file = folder / (m["id"] + Path(m["image"]).suffix)
-            if not file.is_file() or file.read_bytes() != data:
-                file.write_bytes(data)
-            url = QUrl.fromLocalFile(str(file)).toString()
-        return _json({"ok": True, "map": m, "url": url})
+        reply = self.api.codex.map_info(map_id)
+        if reply.get("ok"):
+            file = reply.pop("file")
+            reply["url"] = _url(file) if file else None
+        return _json(reply)
 
     @Slot(str, result=str)
     def createMapDialog(self, title: str) -> str:
         """F5.7: a map's base image is a JPEG or PNG file."""
-        t = self.session.t
-        path, _ = QFileDialog.getOpenFileName(self.window, t("dialog.mapImageTitle"), "", t("dialog.mapImageFilter"))
+        path = self._pick_file("dialog.mapImageTitle", "dialog.mapImageFilter")
         if not path:
             return _json({"ok": False, "cancelled": True})
-        try:
-            data = Path(path).read_bytes()
-        except OSError as exc:
-            return _json({"ok": False, "error": str(exc)})
-        return self._world_call(lambda: self.session.create_map(title or Path(path).stem, Path(path).name, data))
+        return _json(self.api.codex.create_map_file(title, path))
 
     @Slot(str, str, str, result=str)
     def createMapData(self, title: str, name: str, data: str) -> str:
-        raw = base64.b64decode(data.split(",", 1)[-1])
-        return self._world_call(lambda: self.session.create_map(title, name, raw))
+        return _json(self.api.codex.create_map(title, name, data))
 
     @Slot(str, result=str)
     def updateMap(self, request: str) -> str:
-        return self._world_call(lambda: self.session.update_map(json.loads(request)))
+        return _json(self.api.codex.update_map(json.loads(request)))
 
     @Slot(str, result=str)
     def deleteMap(self, map_id: str) -> str:
-        return self._world_call(lambda: self.session.delete_map(map_id))
+        return _json(self.api.codex.delete_map(map_id))
 
     @Slot(result=str)
     def chart(self) -> str:
-        return _json(self.session.chart() if self.session.adventure else {"nodes": [], "edges": []})
+        return _json(self.api.codex.chart())
 
     @Slot(str, result=str)
     def setChartPositions(self, request: str) -> str:
-        return self._world_call(lambda: self.session.set_chart_positions(json.loads(request)))
+        return _json(self.api.codex.set_chart_positions(json.loads(request)))
 
     @Slot(result=str)
     def upgradeOffer(self) -> str:
-        """F3.12: offered once when an adventure saved before M3 opens."""
-        if self.session.adventure is None:
-            return _json({"offer": False, "candidates": []})
-        return _json({"offer": self.session.offers_upgrade(), "candidates": self.session.upgrade_candidates()})
+        return _json(self.api.codex.upgrade_offer())
 
     @Slot(str, result=str)
     def applyUpgrade(self, request: str) -> str:
-        return self._world_call(lambda: self.session.apply_upgrade(json.loads(request)))
+        return _json(self.api.codex.apply_upgrade(json.loads(request)))
 
+    # --- the preview window and the preview's options (F7.2, F6.4) ------------------------------
     @Slot(result=str)
     def lastBuild(self) -> str:
         """F7.2 (M5): the last build's pages, for a newly opened preview window."""
@@ -1398,9 +1056,7 @@ class Bridge(QObject):
 
     @Slot(result=str)
     def previewWindowTitle(self) -> str:
-        adventure = self.session.adventure
-        title = adventure.title if adventure else ""
-        return _json({"title": self.session.t("app.previewWindowTitle", title=title or self.session.t("app.untitled"))})
+        return _json({"title": self.api.app.text("app.previewWindowTitle", title=self.api.adventure.title())})
 
     @Slot(result=str)
     def openPreviewWindow(self) -> str:
@@ -1431,8 +1087,8 @@ class Bridge(QObject):
             self.window.close()
         return _json({"ok": True})
 
-    # --- messages --------------------------------------------------------------------
+    # --- messages -------------------------------------------------------------------------------
     def _show_error(self, text: str) -> None:
         if self.window is None or getattr(self.window, "headless_test", False):
             return
-        QMessageBox.warning(self.window, self.session.t("dialog.errorTitle"), text)
+        QMessageBox.warning(self.window, self.api.app.text("dialog.errorTitle"), text)

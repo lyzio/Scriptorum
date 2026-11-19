@@ -69,7 +69,7 @@ def test_T_REL_09_kit_takes_the_pins_from_the_app(tmp_path):
     needed library is refused; cryptography is needed from 0.6.7."""
     kit = kit_module()
     config = json.loads((KIT / "kit.json").read_text("utf-8"))
-    assert "pins" not in config and config["kit_version"] == "1.0.4"  # 1.0.4 from M6-0.6.10 (T-REL-14)
+    assert "pins" not in config and config["kit_version"] == "1.0.5"  # 1.0.5 from 0.7.4 (keyring, F25.18); 1.0.4 from M6-0.6.10
     assert kit.read_pins(ROOT) == app_pins()
     assert {"PySide6", "typst", "spylls", "cryptography"} <= set(app_pins())
     for text in (KIT / "build.py").read_text("utf-8"), (KIT / "common" / "scriptorum.spec").read_text("utf-8"):
@@ -160,10 +160,14 @@ def test_T_REL_11_release_description_from_the_changelog():
     spec.loader.exec_module(tool)
     version = __import__("scriptorum").__version__
     section = tool.changelog_section(version)
-    assert section and "Windows installer has not been tested yet" in section
+    # Corrected for 0.7.2: the section says how far the Windows installer has
+    # been tested (with 0.6.9), no longer that it has not been tested.
+    assert section and "Windows installer was tested with 0.6.9" in section
     assert not section.startswith("## ") and "\n## " not in section
     assert tool.changelog_section("9.9.9") == ""
     command = tool.publish_commands(version, ["a.zip"], "Note.", exists=False, notes_file=Path("notes.md"))[0]
     assert command[-2:] == ["--notes-file", "notes.md"]
     readme = (ROOT / "README.md").read_text("utf-8")
-    assert "## What " not in readme and "CHANGELOG.md" in readme and "Not yet tested" in readme
+    # Corrected for 0.7.2: the Windows installer was tested with 0.6.9, so the
+    # README no longer says "Not yet tested"; it names the version tested.
+    assert "## What " not in readme and "CHANGELOG.md" in readme and "Tested with 0.6.9" in readme

@@ -1,0 +1,19 @@
+{
+  "id": "scriptorum.wh40krp",
+  "kind": "theme",
+  "name": "WH40KRP",
+  "version": "1.0.0",
+  "format": 1,
+  "app": "1.0.0",
+  "licence": "GPL-3.0-or-later",
+  "authors": [
+    "Scriptorum project"
+  ],
+  "description": "A general theme for any game system: grimdark gothic, near-black and bone with dark bronze and a deep red, Grenze Gotisch headings, Spectral text and Share Tech Mono labels, a black band, a skull over laurels, pointed arches and a dossier with a Clearance stamp. An unofficial, fan-made look, not affiliated with or endorsed by the owners of the work or game it is named after.",
+  "requires": [
+    {
+      "id": "scriptorum.core",
+      "version": "1.x"
+    }
+  ]
+}

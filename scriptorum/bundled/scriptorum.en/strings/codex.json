@@ -77,5 +77,7 @@
   "clueAdopted": "This text is now the description of the clue “{title}”.",
   "inCard": "known here (this card)",
   "typeCard": "Shown in the text as",
-  "typeCardPlain": "A codex card"
+  "typeCardPlain": "A codex card",
+  "fromOther": "set on that entry",
+  "linkFromOther": "Linked from {name}'s entry"
 }

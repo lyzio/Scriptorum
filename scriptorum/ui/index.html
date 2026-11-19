@@ -57,9 +57,15 @@
     <div id="codex-panel" class="codex-panel hidden"></div>
     <div id="handouts-panel" class="handouts-panel hidden"></div>
     <section id="scene-panel" class="scene-panel" data-i18n-aria="scene.title">
-      <h3 data-i18n="scene.title"></h3>
+      <!-- F25 (0.7.5): In this scene and Extensions, the second only while an extension is switched on. -->
+      <div id="lower-tabs" class="lower-tabs hidden" role="tablist">
+        <button id="lt-scene" type="button" role="tab" aria-selected="true" data-i18n="scene.title"></button>
+        <button id="lt-extensions" type="button" role="tab" aria-selected="false" data-i18n="ext.tabTitle"></button>
+      </div>
+      <h3 id="scene-panel-title" data-i18n="scene.title"></h3>
       <div id="scene-panel-scene" class="scene-panel-scene"></div>
       <ul id="scene-panel-list" class="scene-panel-list"></ul>
+      <div id="ext-tab" class="ext-tab hidden"></div>
     </section>
   </aside>
   <section id="editor-pane" class="editor-pane" data-i18n-aria="editor.label">
@@ -100,6 +106,8 @@
       <span class="sep" aria-hidden="true"></span>
       <button id="zoom-spread" type="button" aria-pressed="false" data-i18n="zoom.spread"></button>
       <button id="zoom-window" type="button" data-i18n="zoom.ownWindow"></button>
+      <!-- F7.2 (0.7.0, issue #21): the preview follows the Visual editor. -->
+      <button id="zoom-follow" type="button" aria-pressed="true" data-i18n="zoom.follow" data-i18n-title="zoom.followHint"></button>
     </div>
     <div id="version-bar" class="version-bar hidden" role="status">
       <span id="version-bar-text"></span>
@@ -125,7 +133,7 @@
 <section id="welcome" class="welcome hidden">
   <div class="welcome-card">
     <!-- F9 (M6-0.6.10): the logo, which carries the name; the heading stays for screen readers. -->
-    <img class="logo-card welcome-logo" src="logo.png" width="200" height="200" data-i18n-alt="app.logoAlt">
+    <img class="welcome-logo" src="logo.png" width="200" height="200" data-i18n-alt="app.logoAlt">
     <h1 class="sr-only" data-i18n="app.name"></h1>
     <p class="lead" data-i18n="welcome.lead"></p>
     <div class="welcome-actions">
@@ -162,12 +170,14 @@
         <button id="sn-application" type="button" role="tab" data-section="application"><span data-i18n="settings.section.application"></span></button>
         <button id="sn-colours" type="button" role="tab" data-section="colours"><span data-i18n="settings.section.colours"></span></button>
         <button id="sn-modules" type="button" role="tab" data-section="modules"><span data-i18n="settings.section.modules"></span></button>
+        <button id="sn-extensions" type="button" role="tab" data-section="extensions"><span data-i18n="settings.section.extensions"></span></button>
         <button id="sn-adventure" type="button" role="tab" data-section="adventure"><span data-i18n="settings.section.adventure"></span><small id="sn-adventure-name"></small></button>
       </nav>
       <div class="settings-pages">
         <div id="sp-application" class="settings-page hidden"></div>
         <div id="sp-colours" class="settings-page hidden"></div>
         <div id="sp-modules" class="settings-page hidden"></div>
+        <div id="sp-extensions" class="settings-page hidden"></div>
         <div id="sp-adventure" class="settings-page hidden">
     <h3 data-i18n="settings.look"></h3>
     <div class="settings-row"><span data-i18n="settings.gameSystem"></span><strong id="set-gameSystem"></strong><select id="set-gameSystemPick" data-i18n-aria="settings.changeGameSystem"></select><label class="version-pick"><span data-i18n="settings.version"></span><select id="set-gameSystemVersion" data-i18n-aria="settings.gameSystemVersion"></select></label></div>
@@ -324,7 +334,7 @@
   </div>
   <section id="about-page-about" class="about-page" role="tabpanel">
     <div class="about-head">
-      <img class="logo-card about-logo" src="logo.png" width="96" height="96" data-i18n-alt="app.logoAlt">
+      <img class="about-logo" src="logo.png" width="96" height="96" data-i18n-alt="app.logoAlt">
       <div>
         <h2 data-i18n="app.name"></h2>
         <p id="about-version" class="settings-note"></p>
@@ -378,6 +388,7 @@
   <p id="update-address" class="update-address"></p>
   <div class="dialog-actions">
     <button id="update-close" type="button" data-i18n="dialog.close"></button>
+    <button id="update-settings" type="button" class="hidden" data-i18n="connections.openSettings"></button>
     <button id="update-open" type="button" class="hidden" data-i18n="update.open"></button>
     <button id="update-install" type="button" class="primary hidden" data-i18n="update.install"></button>
   </div>
@@ -403,6 +414,19 @@
   <p class="settings-note" data-i18n="status.warningsHint"></p>
   <ul id="warnings-list" class="warnings-list"></ul>
 </div>
+
+<!-- F25.5 (0.7.4): what an extension needs, before it is installed. -->
+<dialog id="ext-consent" class="dialog ext-consent" aria-labelledby="ext-consent-title">
+  <h2 id="ext-consent-title"></h2>
+  <p id="ext-consent-about" class="ext-about"></p>
+  <p id="ext-consent-verified" class="ext-verified"></p>
+  <p id="ext-consent-lead"></p>
+  <ul id="ext-consent-needs" class="ext-needs"></ul>
+  <div class="dialog-actions">
+    <button id="ext-consent-cancel" type="button" data-i18n="dialog.cancel"></button>
+    <button id="ext-consent-ok" type="button" class="primary" data-i18n="ext.install"></button>
+  </div>
+</dialog>
 
 <div id="menu-popup" class="popup hidden" role="menu"></div>
 

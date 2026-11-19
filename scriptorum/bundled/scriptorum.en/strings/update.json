@@ -31,5 +31,6 @@
   "backDone": "Scriptorum went back to version {version}, as you asked.",
   "goBackAsk": "Go back to Scriptorum {version} the next time Scriptorum starts? Your adventures, modules and settings are not changed.",
   "goBackYes": "Go back",
-  "goBackReady": "Scriptorum {version} runs the next time Scriptorum starts."
+  "goBackReady": "Scriptorum {version} runs the next time Scriptorum starts.",
+  "blocked": "Connections outside the app are blocked, so Scriptorum did not look for updates. Nothing was sent. You can change this in Settings ▸ Application."
 }

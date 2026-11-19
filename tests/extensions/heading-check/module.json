@@ -1,0 +1,18 @@
+{
+  "id": "lyzio.heading-check",
+  "kind": "extension",
+  "name": "Heading check",
+  "version": "1.0.0",
+  "format": 1,
+  "app": "1.0.0",
+  "licence": "GPL-3.0-or-later",
+  "authors": ["Scriptorum project"],
+  "description": "Lists the headings of the open chapter, for trying extensions by hand (T-EXT-16). Not shipped in the app.",
+  "requires": [{"id": "api", "version": "1.x"}],
+  "main": "extension.py",
+  "needs": {"reads": ["text"], "changes": "none", "network": []},
+  "settings": [{"id": "token", "kind": "secret", "label": "A test secret", "note": "Anything you like; it is only stored, to try the keychain."}],
+  "menu": [{"id": "list", "label": "List headings"}],
+  "block_actions": [{"id": "list", "label": "List headings", "kinds": ["scene"]}],
+  "panels": [{"id": "headings", "type": "findings", "title": "Headings"}]
+}

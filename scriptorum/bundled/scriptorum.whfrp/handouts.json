@@ -1,0 +1,72 @@
+{
+  "papers": [
+    {
+      "id": "notice",
+      "label": "paper.notice",
+      "outline": "#3A352E",
+      "inner": "#B7B1A7",
+      "edge_mm": 1.4,
+      "corner": "none",
+      "folds": [
+        0,
+        1
+      ],
+      "marks": {
+        "colour": "#8A8378",
+        "opacity": 0.18,
+        "spots": [
+          4,
+          4
+        ],
+        "stains": [
+          0,
+          1
+        ],
+        "tears": [
+          1,
+          2
+        ],
+        "spot_mm": 1.4
+      },
+      "ink": "#1F1C18"
+    },
+    {
+      "id": "tavern-bill",
+      "label": "paper.tavern-bill",
+      "outline": "#5B5246",
+      "inner": "#C9C1B2",
+      "edge_mm": 0.8,
+      "corner": "curl",
+      "folds": [
+        1,
+        2
+      ],
+      "ruled": {
+        "colour": "#D8D2C8",
+        "gap_mm": 7
+      },
+      "marks": {
+        "colour": "#9A8E7A",
+        "opacity": 0.12,
+        "spots": [
+          0,
+          2
+        ],
+        "stains": [
+          0,
+          1
+        ],
+        "tears": [
+          0,
+          0
+        ],
+        "rings": [
+          0,
+          1
+        ]
+      },
+      "ink": "#2A2520"
+    }
+  ],
+  "rules": "F6.5: the paper is never filled with a colour; outline, inner line, folds, marks and ink may be coloured; stains stay pale (opacity at most 0.2)."
+}

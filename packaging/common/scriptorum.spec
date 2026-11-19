@@ -32,7 +32,9 @@ datas += collect_data_files("spylls")
 # The About window reads these versions with importlib.metadata (F9).
 # From 0.6.7 the start-up step also compares these versions with the ones an
 # update pack was made for (F22), so cryptography's metadata goes in too.
-for dist in ("typst", "spylls", "PySide6", "shiboken6", "cryptography"):
+# keyring (F25.18, 0.7.4) finds the computer's keychain through its package
+# metadata (entry points), so its metadata goes in too.
+for dist in ("typst", "spylls", "PySide6", "shiboken6", "cryptography", "keyring"):
     try:
         datas += copy_metadata(dist)
     except Exception:  # an app version before 0.6.7 does not use cryptography
@@ -45,6 +47,11 @@ hiddenimports = collect_submodules("scriptorum") + collect_submodules("spylls")
 try:  # F22: the signature check on update files and packs (0.6.7 and newer)
     import cryptography  # noqa: F401
     hiddenimports += collect_submodules("cryptography.hazmat.primitives")
+except ImportError:
+    pass
+try:  # F25.18 (0.7.4): every keychain backend; keyring picks the one this computer has
+    import keyring  # noqa: F401
+    hiddenimports += collect_submodules("keyring.backends")
 except ImportError:
     pass
 hiddenimports = [name for name in hiddenimports if ".tests" not in name]

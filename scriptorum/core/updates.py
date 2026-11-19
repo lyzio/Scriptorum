@@ -39,8 +39,6 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-import urllib.error
-import urllib.request
 from typing import Callable, Optional
 
 from scriptorum.core import signing
@@ -87,21 +85,6 @@ def address_set(url: str) -> bool:
 
 def _https(url: str) -> bool:
     return isinstance(url, str) and url.lower().startswith("https://") and len(url) > len("https://")
-
-
-def fetch(url: str, timeout: float = TIMEOUT_SECONDS) -> bytes:
-    """Read the update file: one GET over https with nothing but the request
-    itself. Proxies set on the computer are used as for any program."""
-    request = urllib.request.Request(url, headers={"User-Agent": "Scriptorum", "Accept": "application/json"})
-    # urllib keeps no cookies. A redirect that ends anywhere but on https is
-    # treated as unreachable.
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 (https checked by the caller)
-        if not _https(response.geturl()):
-            raise urllib.error.URLError("redirected away from https")
-        data = response.read(MAX_BYTES + 1)
-    if len(data) > MAX_BYTES:
-        raise ValueError("update file too large")
-    return data
 
 
 def address_ok(url) -> bool:
@@ -171,8 +154,10 @@ def read_file(data: bytes, current: str, platform: Optional[str] = None, key: Op
 
 def check(current: str, url: str = None, opener: Optional[Callable[[str], bytes]] = None,
           platform: Optional[str] = None, key: Optional[str] = None, have: Optional[dict] = None) -> dict:
-    """Help ▸ Check for updates… (F21, F22). ``opener`` stands in for
-    ``fetch`` in the tests. Returns a dict with ``state`` and, for a newer
+    """Help ▸ Check for updates… (F21, F22). ``opener`` reads the file; from
+    0.7.0 it is the internal API's network gate (F23.6), the only code that
+    reaches the network, or a stand-in in the tests. Without it nothing is
+    asked and the address counts as unreachable. Returns a dict with ``state`` and, for a newer
     version, its ``version``, ``note``, ``download`` page and, when it can
     be installed from inside the app, its ``pack``."""
     url = UPDATE_URL if url is None else url
@@ -180,9 +165,11 @@ def check(current: str, url: str = None, opener: Optional[Callable[[str], bytes]
         return {"state": NO_ADDRESS}
     if not _https(url.strip()):
         return {"state": NOT_HTTPS}
+    if opener is None:
+        return {"state": UNREACHABLE}
     try:
-        data = (opener or fetch)(url.strip())
-    except (OSError, ValueError, urllib.error.URLError):
+        data = opener(url.strip())
+    except (OSError, ValueError):
         # F21.3: said plainly, and nothing else is affected.
         return {"state": UNREACHABLE}
     return read_file(data, current, platform, key, have, url.strip())
@@ -199,19 +186,6 @@ class InstallError(Exception):
         self.reason = reason
 
 
-def fetch_pack(url: str, timeout: float = 60) -> bytes:
-    """Download an update pack: one GET over https with nothing but the
-    request itself, only when the author clicked Download and install."""
-    request = urllib.request.Request(url, headers={"User-Agent": "Scriptorum", "Accept": "application/zip"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 (https checked by the caller)
-        if not _https(response.geturl()):
-            raise urllib.error.URLError("redirected away from https")
-        data = response.read(MAX_PACK_BYTES + 1)
-    if len(data) > MAX_PACK_BYTES:
-        raise ValueError("update pack too large")
-    return data
-
-
 def install(pack: dict, versions, download: Optional[Callable[[str], bytes]] = None,
             key: Optional[str] = None, have: Optional[dict] = None, running: Optional[str] = None,
             expected: Optional[str] = None) -> str:
@@ -224,9 +198,11 @@ def install(pack: dict, versions, download: Optional[Callable[[str], bytes]] = N
     url = pack.get("url") if isinstance(pack, dict) else None
     if not address_ok(url):
         raise InstallError("damaged")
+    if download is None:   # F23.6: only the API's network gate downloads
+        raise InstallError("unreachable")
     try:
-        data = (download or fetch_pack)(url.strip())
-    except (OSError, ValueError, urllib.error.URLError) as exc:
+        data = download(url.strip())
+    except (OSError, ValueError) as exc:
         raise InstallError("unreachable") from exc
     if len(data) != pack.get("size") or hashlib.sha256(data).hexdigest() != pack.get("sha256"):
         raise InstallError("damaged")

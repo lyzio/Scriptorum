@@ -6,7 +6,8 @@ version: ``<library>/<id>/<version>/``. Several versions can sit side by side;
 an adventure always uses the exact version it pins.
 
 Modules contain only data and Typst (3.1). Installation refuses any other
-file type (9.1, 9.7).
+file type (9.1, 9.7). From 0.7.4 the one exception is an extension module
+(F25), which may hold Python files; compiled code is refused in every kind.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ KINDS = {
     "adventure-language",
     "interface-language",
     "palette",
+    "extension",   # F25 (0.7.4): adds functions with its own Python code
 }
 CONTENT_KINDS = {"game-system", "element-kit", "theme", "adventure-language"}
 
@@ -235,12 +237,17 @@ def validate_folder(src: Path) -> dict:
         if not RANGE_RE.match(str(req["version"])):
             raise ModuleError("error.module.badRequires", id=manifest["id"])
 
+    # F25.4 (0.7.4): Python only in an extension; compiled code in no kind.
+    from scriptorum.core.extensions import KIND as EXTENSION, check_files
+    check_files(src, manifest["kind"])
     for file in src.rglob("*"):
         if file.is_dir():
             continue
         if file.is_symlink():
             raise ModuleError("error.module.forbiddenFile", file=str(file.relative_to(src)))
         if file.suffix.lower() in ALLOWED_SUFFIXES:
+            continue
+        if manifest["kind"] == EXTENSION and file.suffix.lower() == ".py":
             continue
         # F16: a palette may carry its own window stylesheet, palette.css. It
         # changes only the window, and nothing in it may reach the internet.
@@ -391,6 +398,10 @@ class Library:
         return [m for m in self.installed() if m.kind == kind]
 
     def requirement_met(self, req: dict, include_disabled: bool = False) -> bool:
+        if req.get("id") == "api":
+            # F25.9: an extension names the internal API version it was written for.
+            from scriptorum.core.extensions import api_matches
+            return api_matches(str(req.get("version", "")))
         return any(
             m.id == req["id"] and version_matches(m.version, str(req["version"]))
             for m in self.installed(include_disabled)
@@ -585,16 +596,68 @@ def iter_requirements(module: Module) -> Iterable[dict]:
     return module.manifest.get("requires", [])
 
 
+# F8 (#23): the pages the core element kit always prints, which every theme
+# draws besides the element kinds a game system turns on.
+THEME_PAGES = ("codex-card", "end-clues", "end-index")
+
+
+def game_system_blocks(library: "Library", game_system: Module) -> List[str]:
+    """F8 (0.7.0 step 2, issue #23): every block a theme must draw to be
+    offered for this game system: each element kind it turns on that has a
+    renderer (not the layout markers, not kinds marked ``renderer: false``),
+    the kinds it adds of its own, and the pages the core element kit always
+    prints (``THEME_PAGES``)."""
+    turned_on = game_system.turned_on()
+    blocks: List[str] = []
+
+    def take(kind_id: str, definition: dict) -> None:
+        if definition.get("category") == "layout" or definition.get("renderer") is False:
+            return
+        if kind_id not in blocks:
+            blocks.append(kind_id)
+
+    for kit in library.of_kind("element-kit"):
+        for kind_id, definition in kit.element_kinds().items():
+            if turned_on is None or kind_id in turned_on or definition.get("always_on"):
+                take(kind_id, definition)
+        if kit.id == "scriptorum.core":
+            for page in THEME_PAGES:
+                if page not in blocks:
+                    blocks.append(page)
+    for kind_id, definition in game_system.element_kinds().items():
+        take(kind_id, definition)
+    return blocks
+
+
+def theme_missing(library: "Library", theme: Module, game_system: Module) -> List[str]:
+    """F8 (#23): the blocks of the game system that the theme has no template for."""
+    return [b for b in game_system_blocks(library, game_system) if not theme.has_template(b)]
+
+
+def _game_system_ids(library: "Library") -> set:
+    return {m.id for m in library.installed(include_disabled=True) if m.kind == "game-system"}
+
+
 def theme_offered_for(library: "Library", theme: Module, game_system: Module) -> bool:
-    """F8 general themes (decided 6 Nov 2026, M4): a theme whose manifest
-    requires only element kits, and no game system, is offered for every game
-    system; a theme that requires a game system is offered only for that one."""
-    requires = theme.manifest.get("requires", [])
-    game_reqs = []
-    for req in requires:
-        kinds = {m.kind for m in library.installed() if m.id == req["id"]}
-        if "game-system" in kinds or not kinds and req["id"] == game_system.id:
-            game_reqs.append(req)
-    if not game_reqs:
-        return all(library.requirement_met(r) for r in requires)
-    return any(r["id"] == game_system.id and version_matches(game_system.version, r["version"]) for r in game_reqs)
+    """F8 (decided 14 November 2026, built in 0.7.0 step 2, issue #23): a
+    theme is offered for a game system when it has a template for every
+    block that game system uses; otherwise it is locked for it. Which game
+    system the theme was made for plays no part: a requirement of a game
+    system in its manifest is ignored. Its other requirements (element kits)
+    must be met."""
+    systems = _game_system_ids(library)
+    for req in theme.manifest.get("requires", []):
+        if req["id"] in systems or req["id"] == game_system.id:
+            continue
+        if not library.requirement_met(req):
+            return False
+    return not theme_missing(library, theme, game_system)
+
+
+def theme_made_for(theme: Module, game_system: Module) -> bool:
+    """F8 (#23): the theme names this game system as the one it was made for
+    (``made_for``, 9.2; or, for a theme from before 0.7.0, its requirement),
+    which only puts it first in the lists."""
+    if theme.manifest.get("made_for") == game_system.id:
+        return True
+    return any(r["id"] == game_system.id for r in theme.manifest.get("requires", []))

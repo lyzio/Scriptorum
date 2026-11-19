@@ -65,5 +65,44 @@
   "handout": false,
   "editor": "form",
   "shortcut": null,
-  "toolbar_group": "people"
+  "toolbar_group": "people",
+  "paste_labels": {
+    "names": [
+      "Person",
+      "NPC",
+      "SLP"
+    ],
+    "fields": {
+      "name": [
+        "Name",
+        "Namn"
+      ],
+      "mood": [
+        "Mood",
+        "Humör",
+        "Sinnesstämning"
+      ],
+      "how-to-play": [
+        "How to play",
+        "Spelas som"
+      ],
+      "description": [
+        "Description",
+        "Beskrivning"
+      ],
+      "links": [
+        "Linked to",
+        "Kopplad till",
+        "Länkad till"
+      ]
+    },
+    "knows": [
+      "She knows",
+      "He knows",
+      "Knows",
+      "Hon vet",
+      "Han vet",
+      "Vet"
+    ]
+  }
 }

@@ -1,0 +1,19 @@
+{
+  "id": "scriptorum.whfrp",
+  "kind": "theme",
+  "name": "WHFRP",
+  "version": "1.0.0",
+  "format": 1,
+  "app": "1.0.0",
+  "licence": "GPL-3.0-or-later",
+  "authors": [
+    "Scriptorum project"
+  ],
+  "description": "A general theme for any game system: grim fantasy after the look of the 4th-edition WFRP books, in dark grey-brown ink with grey panels with torn edges, a plum chapter tab, a green medallion, Libre Caslon Display headings and Crimson Text. An unofficial, fan-made look, not affiliated with or endorsed by the owners of the work or game it is named after.",
+  "requires": [
+    {
+      "id": "scriptorum.core",
+      "version": "1.x"
+    }
+  ]
+}

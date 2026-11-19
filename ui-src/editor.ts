@@ -151,6 +151,72 @@ export class VisualEditor {
 
   constructor(private root: HTMLElement, private hooks: EditorHooks) {
     root.addEventListener("keydown", (e) => this.onKey(e));
+    // F7.7 (0.7.0 step 3, issue #4): a click on a footnote chip edits it in place.
+    root.addEventListener("click", (e) => {
+      const chip = (e.target as HTMLElement).closest<HTMLElement>(".ichip");
+      if (!chip || this.readOnly || !(chip.dataset.src ?? "").startsWith("#footnote(")) return;
+      e.preventDefault();
+      this.editFootnote(chip);
+    });
+  }
+
+  /** F7.7 (issue #4): a small box with the footnote's text, bold and italic
+   * included. Enter or a click outside saves it as one undo step; Esc
+   * cancels. An emptied box changes nothing (Delete removes a footnote). */
+  editFootnote(chip: HTMLElement): void {
+    document.querySelector(".footnote-edit")?.remove();
+    const host = chip.closest<HTMLElement>("[contenteditable=true]");
+    if (!host) return;
+    const before = footnoteText(chip.dataset.src ?? "");
+    const pop = el("div", "footnote-edit", { role: "dialog" });
+    const label = el("div", "footnote-edit-label");
+    label.textContent = t("editor.footnoteLabel");
+    const box = el("div", "rich footnote-text", { contenteditable: "true", role: "textbox" });
+    box.setAttribute("aria-label", t("editor.footnoteLabel"));
+    box.innerHTML = inlineToHtml(before);
+    pop.append(label, box);
+    document.body.append(pop);
+    const r = chip.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + "px";
+    pop.style.top = (r.bottom + 6 + pop.offsetHeight > innerHeight ? Math.max(8, r.top - pop.offsetHeight - 6) : r.bottom + 6) + "px";
+    let done = false;
+    const close = (save: boolean) => {
+      if (done) return;
+      done = true;
+      document.removeEventListener("pointerdown", outside, true);
+      pop.remove();
+      const markup = htmlToInline(box).replace(/\s*\n+\s*/g, " ").trim();
+      if (!save || !markup || markup === before || !chip.isConnected) return;
+      const holder = document.createElement("span");
+      holder.innerHTML = chipHtml(`#footnote(text: ${JSON.stringify(markup)})`);
+      chip.replaceWith(holder.firstChild!);
+      host.dispatchEvent(new Event("input", { bubbles: true }));
+      this.hooks.onCommit(this.doc);
+    };
+    const outside = (e: Event) => {
+      if (!pop.contains(e.target as Node)) close(true);
+    };
+    box.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        close(true);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        close(false);
+      }
+      e.stopPropagation();
+    });
+    box.addEventListener("paste", (e) => {
+      e.preventDefault();
+      document.execCommand("insertText", false, (e.clipboardData?.getData("text/plain") ?? "").replace(/\s+/g, " "));
+    });
+    setTimeout(() => document.addEventListener("pointerdown", outside, true), 0);
+    box.focus();
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    range.collapse(false);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(range);
   }
 
   setDefinitions(defs: ElementDef[]): void {
@@ -310,12 +376,13 @@ export class VisualEditor {
     // C3 also outside any scene (an info page before the first scene).
     const owner = chain[chain.length - 1];
     if (!owner || (owner.type === "element" && owner.kind === "scene")) kinds.push(...SUB_HEADINGS);
-    kinds.push("table", "image");
+    kinds.push("list", "table", "image");
     for (const def of this.defs.values()) {
       // A scene stands on its own; Boxes, Quotes and the layout sections
       // take any other block (M6 part C2).
       if (def.id === "scene" && chain.length > 0) continue;
       if (def.onlyInside && def.onlyInside.length) continue;
+      if (def.offered === false) continue; // F7.4 (#20): not on this page
       kinds.push(def.id);
     }
     return kinds;
@@ -327,7 +394,8 @@ export class VisualEditor {
   }
 
   private renderBlock(block: Block, place: Place, allow: string[] | null): HTMLElement {
-    const wrap = el("section", "blk blk-" + block.type);
+    // A list block is "blk-listing": "blk-list" is the box that holds blocks.
+    const wrap = el("section", "blk blk-" + (block.type === "list" ? "listing" : block.type));
     if (block.line) wrap.dataset.line = String(block.line);
     // Folding acts and scenes in the editor (screen only).
     if (place.chain.length === 0) {
@@ -412,6 +480,8 @@ export class VisualEditor {
       note.textContent = t("editor.locked");
       pre.tabIndex = 0;
       wrap.append(note, pre);
+    } else if (block.type === "list") {
+      wrap.append(this.renderListBlock(block, place));
     } else if (block.type === "table") {
       wrap.append(this.renderTable(block, place));
     } else if (block.type === "image") {
@@ -1014,6 +1084,127 @@ export class VisualEditor {
 
   // --- tables (F4.5) and images (F4.6) ---------------------------------------
 
+  /** F4 (0.7.0 step 3, issue #5): a bulleted or numbered list, one line to
+   * type in per item. Enter adds an item after the cursor's; Enter on an
+   * empty item ends the list with a paragraph after it; Tab and Shift+Tab
+   * change an item's level (never more than one deeper than the item above,
+   * at most three levels); Backspace at the start of an empty item removes it. */
+  private renderListBlock(block: Block, place: Place): HTMLElement {
+    const box = el("div", "list-edit " + (block.ordered ? "ordered" : "bulleted"), { role: "list" });
+    const items = block.items ?? (block.items = [{ level: 0, text: "" }]);
+    const counters = [0, 0, 0];
+    items.forEach((item, i) => {
+      const level = Math.max(0, Math.min(2, item.level));
+      counters[level] += 1;
+      for (let deeper = level + 1; deeper < 3; deeper++) counters[deeper] = 0;
+      const row = el("div", "list-item level-" + level, { role: "listitem" });
+      const mark = el("span", "list-mark");
+      mark.textContent = block.ordered ? counters[level] + "." : ["\u2022", "\u2013", "\u25e6"][level];
+      mark.setAttribute("aria-hidden", "true");
+      const line = el("div", "rich list-text", { contenteditable: this.readOnly ? "false" : "true", role: "textbox" });
+      line.setAttribute("aria-label", t("editor.listItem"));
+      line.dataset.item = String(i);
+      line.innerHTML = inlineToHtml(item.text);
+      line.addEventListener("input", () => {
+        item.text = htmlToInline(line).replace(/\n+/g, " ");
+        this.changed(block, place.chain);
+      });
+      line.addEventListener("paste", (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData?.getData("text/plain") ?? "").replace(/\r\n?/g, "\n").replace(/\n+/g, " ");
+        document.execCommand("insertText", false, text);
+      });
+      line.addEventListener("keydown", (e) => this.listKey(e, block, place, i, line));
+      row.append(mark, line);
+      box.append(row);
+    });
+    return box;
+  }
+
+  private listKey(e: KeyboardEvent, block: Block, place: Place, i: number, line: HTMLElement): void {
+    if (this.readOnly || e.altKey || e.ctrlKey || e.metaKey) return;
+    const items = block.items!;
+    const item = items[i];
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!htmlToInline(line).trim()) {
+        // An empty item ends the list: a paragraph follows it.
+        items.splice(i, 1);
+        const paragraph: Block = { type: "paragraph", text: "" };
+        const after = items.slice(i);
+        const at = place.list.blocks.indexOf(block);
+        if (items.length === 0) place.list.blocks.splice(at, 1, paragraph);
+        else if (after.length) {
+          items.splice(i);
+          const rest: Block = { type: "list", ordered: block.ordered, items: after };
+          place.list.blocks.splice(at + 1, 0, paragraph, rest);
+        } else place.list.blocks.splice(at + 1, 0, paragraph);
+        delete block.raw;
+        this.commit(place.chain);
+        this.focusBlock(paragraph);
+        return;
+      }
+      // Split at the caret: what follows it goes into the new item.
+      const sel = getSelection();
+      let tail = "";
+      if (sel && sel.rangeCount && line.contains(sel.anchorNode)) {
+        const range = sel.getRangeAt(0).cloneRange();
+        range.selectNodeContents(line);
+        range.setStart(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
+        const holder = document.createElement("div");
+        holder.append(range.extractContents());
+        tail = htmlToInline(holder);
+        item.text = htmlToInline(line);
+      }
+      items.splice(i + 1, 0, { level: item.level, text: tail });
+      delete block.raw;
+      this.commit(place.chain);
+      this.focusListItem(block, i + 1, false);
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      const above = i > 0 ? items[i - 1].level : -1;
+      const level = e.shiftKey ? Math.max(0, item.level - 1) : Math.min(2, above + 1, item.level + 1);
+      if (level === item.level) return;
+      // The items under it move with it, so no item skips a level.
+      const delta = level - item.level;
+      let end = i + 1;
+      while (end < items.length && items[end].level > item.level) end++;
+      for (let k = i; k < end; k++) items[k].level = Math.max(0, Math.min(2, items[k].level + delta));
+      delete block.raw;
+      this.commit(place.chain);
+      this.focusListItem(block, i, true);
+    } else if (e.key === "Backspace" && !htmlToInline(line).trim() && items.length > 1) {
+      e.preventDefault();
+      items.splice(i, 1);
+      delete block.raw;
+      this.commit(place.chain);
+      this.focusListItem(block, Math.max(0, i - 1), true);
+    }
+  }
+
+  /** Put the cursor in an item of a list, at its start or its end. */
+  focusListItem(block: Block, index: number, atEnd: boolean): void {
+    const wrapper = this.blockSections()[this.order().indexOf(block)];
+    const line = wrapper?.querySelector<HTMLElement>(`.list-text[data-item="${index}"]`);
+    if (!line) return;
+    line.focus();
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    range.collapse(!atEnd);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(range);
+  }
+
+  /** F4 (issue #5): switch a list between bulleted and numbered; one undo step. */
+  setListKind(place: Place, ordered: boolean): void {
+    const block = place.list.blocks[place.index];
+    if (!block || block.type !== "list" || !!block.ordered === ordered) return;
+    block.ordered = ordered;
+    delete block.raw;
+    this.commit(place.chain);
+    this.focusListItem(block, 0, true);
+  }
+
   private renderTable(block: Block, place: Place): HTMLElement {
     const box = el("div", "tbl-edit");
     const table = el("table", "tbl");
@@ -1171,6 +1362,7 @@ export class VisualEditor {
     if (kind === "heading") return { type: "heading", level: 1, text: "" };
     if (SUB_HEADINGS.includes(kind)) return { type: "heading", level: Number(kind.slice(-1)), text: "" };
     if (kind === "table") return { type: "table", columns: 2, header: ["", ""], rows: [["", ""]] };
+    if (kind === "list") return { type: "list", ordered: false, items: [{ level: 0, text: "" }] };
     const def = this.defs.get(kind)!;
     const block: Block = { type: "element", kind, fields: {}, variant: def.defaultVariant, new_page: null };
     for (const f of def.fields) {
@@ -1658,11 +1850,11 @@ export class VisualEditor {
   /** The kinds this block can be converted to where it stands. */
   convertKinds(place: Place): string[] {
     const block = place.list.blocks[place.index];
-    if (!block || block.type === "locked" || block.type === "table" || block.type === "image") return [];
+    if (!block || block.type === "locked" || block.type === "table" || block.type === "image" || block.type === "list") return [];
     const current = kindOf(block);
     const kinds = this.kindsFor(place.list, place.chain, this.allowOf(place.chain));
     if (this.splitsScene(place) && !kinds.includes("scene")) kinds.splice(kinds.indexOf("heading") + 1 || 1, 0, "scene");
-    return kinds.filter((k) => k !== current && k !== "table" && k !== "image" && this.defs.get(k)?.category !== "layout");
+    return kinds.filter((k) => k !== current && k !== "table" && k !== "image" && k !== "list" && this.defs.get(k)?.category !== "layout");
   }
 
   /** A block directly inside a top-level scene can become a new scene that
@@ -1688,10 +1880,34 @@ export class VisualEditor {
       return;
     }
     const block = place.list.blocks[place.index];
-    const text = textOf(block, this.defs.get(block.kind ?? ""));
+    let text = textOf(block, this.defs.get(block.kind ?? ""));
     const children = isDoc(block.body) ? block.body.blocks : [];
     const target = this.newBlock(kind);
     target.sep = block.sep;
+    // F4 (0.7.0 step 3, issue #2): a typed label and a list marker at the
+    // start of the line go; a field label fills that field, as do the lines
+    // right after it that start with one of this element's field labels.
+    const pasted = target.type === "element" ? this.takeLabels(text, kind) : null;
+    const knowledge: Block[] = [];
+    if (pasted) {
+      text = pasted.text;
+      if (pasted.variant) target.variant = pasted.variant;
+      if (pasted.field) this.fillPastedField(target, pasted.field[0], pasted.field[1]);
+      while (place.list.blocks[place.index + 1]?.type === "paragraph") {
+        const next = place.list.blocks[place.index + 1];
+        // F4 (0.7.7, issue #33): "She knows (public): …" becomes Information
+        // inside the new card, with the variant named in the brackets.
+        const known = this.takeKnowledge(next.text ?? "", kind);
+        if (known) {
+          knowledge.push(known);
+          place.list.blocks.splice(place.index + 1, 1);
+          continue;
+        }
+        const line = this.takeLabels(next.text ?? "", kind);
+        if (!line?.field || line.field[0] === this.titleField(kind) || !this.fillPastedField(target, line.field[0], line.field[1])) break;
+        place.list.blocks.splice(place.index + 1, 1);
+      }
+    }
     const singleLine = !text.includes("\n") && inlineToPlain(text).length <= 80;
     const release: Block[] = [];
 
@@ -1743,10 +1959,129 @@ export class VisualEditor {
         release.push(...children);
       }
     }
+    if (knowledge.length && isDoc(target.body)) {
+      target.body.blocks.push(...knowledge);
+      target.body.blocks.forEach((b, i) => { if (i === 0) delete b.sep; });
+    }
     release.forEach((b) => delete b.sep);
     place.list.blocks.splice(place.index, 1, target, ...release);
     this.commit(place.chain);
     this.focusBlock(target);
+  }
+
+  /** F4 (issue #2): the words a label may use for this element, its
+   * variants and its fields: the element's own paste labels (English and
+   * Swedish) plus the names the interface shows. */
+  private labelWords(kind: string): { names: string[]; variants: [string, string[]][]; fields: [string, string[]][] } {
+    const def = this.defs.get(kind)!;
+    const own = def.pasteLabels ?? {};
+    const names = [def.name, ...(own.names ?? [])];
+    const variants = def.variants.map((v) => [v.id, [v.label, ...(own.variants?.[v.id] ?? [])]] as [string, string[]]);
+    const fields = def.fields.filter((f) => !f.hidden && !f.legacy && ["text", "rich", "codex", "codex-list"].includes(f.kind))
+      .map((f) => [f.name, [f.label, ...(own.fields?.[f.name] ?? [])]] as [string, string[]]);
+    return { names, variants, fields };
+  }
+
+  private titleField(kind: string): string | undefined {
+    return this.defs.get(kind)?.fields.find((f) => f.required && f.kind === "text")?.name;
+  }
+
+  /** The label at the start of one line of markup, if any: removed with a
+   * leading list marker. A name of the element or a variant goes; a field
+   * label gives its field the rest of the line. A label only counts at the
+   * start, followed by a colon (or in brackets), so "Note: …" in the middle
+   * of a sentence stays. */
+  takeLabels(markup: string, kind: string): { text: string; variant?: string; field?: [string, string] } | null {
+    const words = this.labelWords(kind);
+    const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[- ]/g, "[- ]");
+    const marker = /^\s*(?:\\?[-*+\u2022]|\d+\\?[.)])\s+/;
+    let rest = markup.replace(marker, "");
+    const changedByMarker = rest !== markup;
+    const tryLabel = (list: string[]): string | null => {
+      const alt = list.filter(Boolean).map(esc).join("|");
+      if (!alt) return null;
+      const re = new RegExp("^\\s*(?:\\\\?\\[\\s*(?:" + alt + ")\\s*\\\\?\\]\\s*:?|(?:" + alt + ")(?:\\s+\\d+)?(?:\\s*\\([^)]*\\))?\\s*:)\\s*", "i");
+      const m = re.exec(rest);
+      return m ? rest.slice(m[0].length) : null;
+    };
+    let variant: string | undefined;
+    let field: [string, string] | undefined;
+    let found = false;
+    for (let round = 0; round < 2; round++) {
+      // "[Publikt]" after "Information:", or the other way round.
+      const named = tryLabel(words.names);
+      if (named !== null) { rest = named; found = true; continue; }
+      const v = words.variants.find(([, list]) => tryLabel(list) !== null);
+      if (v && !variant) { rest = tryLabel(v[1])!; variant = v[0]; found = true; continue; }
+      break;
+    }
+    if (!variant && !found) {
+      const f = words.fields.find(([, list]) => tryLabel(list) !== null);
+      if (f) {
+        const value = tryLabel(f[1])!.trim();
+        if (f[0] === this.titleField(kind)) {
+          rest = value;
+          found = true;
+        } else {
+          field = [f[0], value];
+          rest = "";
+          found = true;
+        }
+      }
+    }
+    if (!found && !changedByMarker) return null;
+    return { text: rest.trim(), variant, field };
+  }
+
+  /** F4 (0.7.7, issue #33): a pasted line that says what a person knows,
+   * such as "She knows (public): No boat has gone out.", as an Information
+   * item for a card whose element lists those words (paste labels
+   * "knows") and may hold Information. The word in brackets names the
+   * variant, as in a pasted Information label; without it the item gets the
+   * default variant. The label, the brackets and the colon go. */
+  takeKnowledge(markup: string, kind: string): Block | null {
+    const def = this.defs.get(kind);
+    const words = def?.pasteLabels?.knows ?? [];
+    if (!words.length || !this.defs.has("information") || (def?.allow && !def.allow.includes("information"))) return null;
+    const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[- ]/g, "[- ]");
+    const rest = markup.replace(/^\s*(?:\\?[-*+\u2022]|\d+\\?[.)])\s+/, "");
+    const re = new RegExp("^\\s*(?:" + words.map(esc).join("|") + ")\\s*(?:\\(\\s*([^)]*?)\\s*\\))?\\s*:\\s*", "i");
+    const m = re.exec(rest);
+    if (!m) return null;
+    const item = this.newBlock("information");
+    const said = (m[1] ?? "").toLowerCase();
+    if (said) {
+      const v = this.labelWords("information").variants.find(([id, list]) => [id, ...list].some((w) => w.toLowerCase() === said));
+      if (v) item.variant = v[0];
+    }
+    item.body = rest.slice(m[0].length).trim();
+    return item;
+  }
+
+  /** Put a pasted value into a field (issue #2). A codex field links the
+   * entries of those names when every name is in the codex; otherwise the
+   * text goes into its older text field of the same name (Location, People
+   * present, Linked to), which the codex upgrade offers to link later. */
+  private fillPastedField(target: Block, name: string, value: string): boolean {
+    const def = this.defs.get(target.kind!)!;
+    const field = def.fields.find((f) => f.name === name);
+    if (!field || !value) return false;
+    target.fields = target.fields ?? {};
+    if (field.kind === "text") target.fields[name] = inlineToPlain(value);
+    else if (field.kind === "rich") target.fields[name] = value;
+    else {
+      const names = inlineToPlain(value).split(/\s*(?:,|;|\band\b|\boch\b)\s*/i).map((n) => n.trim()).filter(Boolean);
+      const entries = this.hooks.codexEntries().filter((e) => !field.types || field.types.includes(e.type));
+      const ids = names.map((n) => entries.find((e) => e.title.toLowerCase() === n.toLowerCase())?.id);
+      if (names.length && ids.every(Boolean)) {
+        target.fields[name] = field.kind === "codex" ? ids[0]! : ids as string[];
+      } else {
+        const legacy = def.fields.find((f) => f.legacy && f.kind === "text" && f.label === field.label);
+        if (!legacy) return false;
+        target.fields[legacy.name] = inlineToPlain(value);
+      }
+    }
+    return true;
   }
 
   // --- keyboard and focus ---------------------------------------------------------
@@ -1825,6 +2160,17 @@ function escapeCell(text: string): string {
 }
 
 /** The text of a block, for Convert to. */
+/** The text of a footnote call, its inline markup (F7.7, issue #4). */
+export function footnoteText(source: string): string {
+  const m = /text:\s*"((?:[^"\\]|\\.)*)"/.exec(source);
+  if (!m) return "";
+  try {
+    return JSON.parse('"' + m[1] + '"');
+  } catch {
+    return m[1];
+  }
+}
+
 function textOf(block: Block, def: ElementDef | undefined): string {
   if (block.type === "paragraph" || block.type === "heading") return block.text ?? "";
   if (block.type !== "element") return "";

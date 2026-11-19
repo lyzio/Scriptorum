@@ -385,10 +385,11 @@ export async function openEntry(id: string, keepScroll = false): Promise<void> {
   body.append(h("div", "entry-type", type?.name ?? info.type));
 
   const form = h("div", "entry-form");
+  const firstLink = (type?.fields ?? []).find((f) => f.kind === "link")?.name;
   for (const field of type?.fields ?? []) {
     const row = h("label", "field entry-field field-" + field.name);
     row.append(h("span", "field-label", field.label + (field.required ? " *" : "")));
-    row.append(entryControl(id, field, info.fields[field.name], ro));
+    row.append(entryControl(id, field, info.fields[field.name], ro, field.name === firstLink ? info.linkedFrom ?? [] : []));
     form.append(row);
   }
   const folder = h("label", "field entry-field");
@@ -467,7 +468,8 @@ export async function openEntry(id: string, keepScroll = false): Promise<void> {
   if (keepScroll) $("worldview-body").scrollTop = scroll;
 }
 
-function entryControl(id: string, field: CodexType["fields"][number], value: any, ro: boolean): HTMLElement {
+function entryControl(id: string, field: CodexType["fields"][number], value: any, ro: boolean,
+  linkedFrom: { id: string; title: string; field: string }[] = []): HTMLElement {
   const set = (v: any) => queueEntry(id, { fields: { [field.name]: v } });
   switch (field.kind) {
     case "rich": {
@@ -514,11 +516,30 @@ function entryControl(id: string, field: CodexType["fields"][number], value: any
         }));
         row.append(chip);
       }
+      // F3 (0.7.0 step 3, issue #17): links stored on the other entry show
+      // here too, marked as coming from it; × removes that one stored link.
+      for (const other of linkedFrom) {
+        const chip = h("span", "codex-chip linked-from");
+        const name = button(other.title, "codex-chip-name", () => openEntry(other.id));
+        chip.title = t("codex.linkFromOther", { name: other.title });
+        chip.append(name, h("span", "linked-from-mark", t("codex.fromOther")));
+        if (!ro) chip.append(button("×", "icon-btn", async () => {
+          await flushEntry();
+          const info = await call("entry", other.id);
+          if (!info?.ok) return;
+          const stored = info.fields?.[other.field];
+          const list: string[] = Array.isArray(stored) ? stored : stored ? [stored] : [];
+          queueEntry(other.id, { fields: { [other.field]: list.filter((x) => x !== id) } });
+          await flushEntry();
+          await openEntry(id, true);
+        }));
+        row.append(chip);
+      }
       if (!ro) {
         const select = h("select", "field-input field-codex");
         select.append(h("option", "", t("editor.addEntry")));
         (select.firstChild as HTMLOptionElement).value = "";
-        for (const e of codex.entries.filter((e) => e.id !== id && !ids.includes(e.id))) {
+        for (const e of codex.entries.filter((e) => e.id !== id && !ids.includes(e.id) && !linkedFrom.some((o) => o.id === e.id))) {
           const opt = h("option", "", `${e.title} (${typeOf(e.type)?.name ?? e.type})`);
           opt.value = e.id;
           select.append(opt);

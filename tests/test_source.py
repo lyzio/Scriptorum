@@ -65,7 +65,10 @@ def test_T_SRC_03_unknown_code_is_locked(kinds):
     assert any(r.startswith("#let flourish") for r in raws)
     assert any(r.startswith("// A comment") for r in raws)
     assert any(r.startswith("#table(") for r in raws)
-    assert any(r.startswith("- A list item") for r in raws)
+    # Corrected for 0.7.0 step 3 (issue #5): a plain list is now a list
+    # block the editor shows; it still writes back unchanged.
+    lists = [b for b in _walk(doc["blocks"]) if b["type"] == "list"]
+    assert lists and lists[0]["raw"].startswith("- A list item")
     assert any("#emph[inline code]" in r for r in raws)
     # Editing a neighbouring block never changes a locked block.
     doc["blocks"][1]["text"] = "An edited paragraph."

@@ -29,7 +29,8 @@ export function chipHtml(source: string): string {
   const face = /face:\s*(\d+)/.exec(args);
   const custom = m && chipLabeler ? chipLabeler(m[1], args) : null;
   const label = custom ?? (face ? "\u2684 " + face[1] : "\u2684 " + (value ? value[1] : m ? m[1] : ""));
-  return '<span class="ichip" contenteditable="false" data-src="' + escapeAttr(source) + '">' + escapeHtml(label) + "</span>";
+  const kind = m ? " " + m[1] : "";
+  return '<span class="ichip' + kind + '" contenteditable="false" data-src="' + escapeAttr(source) + '">' + escapeHtml(label) + "</span>";
 }
 
 function escapeAttr(text: string): string {

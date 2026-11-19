@@ -44,6 +44,8 @@ def test_T_MOD_01_bundled_manifests_valid(library):
         "scriptorum.core", "scriptorum.free-league-vaesen", "scriptorum.vaesen", "scriptorum.en",
         "scriptorum.legends-and-lattes", "scriptorum.call-of-cthulhu", "scriptorum.claret-and-ink",
         "scriptorum.plain-system", "scriptorum.plain",
+        # 0.7.8: four more general themes (F8, decided 19 Nov 2026).
+        "scriptorum.whfrp", "scriptorum.the-one-ring", "scriptorum.wh40krp", "scriptorum.rogue-trader",
     }
     for folder in folders:
         manifest = validate_folder(folder)
@@ -70,6 +72,11 @@ def test_T_MOD_03_missing_requirement(tmp_path, library):
     """T-MOD-03: a missing or wrong-version requirement refuses installation."""
     empty = Library(tmp_path / "empty-library")
     theme = _copy("scriptorum.vaesen", tmp_path, new_id="test.lonely")
+    # Corrected for 0.7.0 (F8, issue #23): the bundled Vaesen theme no longer
+    # requires its game system, so the copy is given that requirement here.
+    manifest = json.loads((theme / "module.json").read_text())
+    manifest["requires"] = [{"id": "scriptorum.free-league-vaesen", "version": "1.x"}]
+    (theme / "module.json").write_text(json.dumps(manifest))
     with pytest.raises(ModuleError) as info:
         empty.install_folder(theme)
     assert info.value.key == "error.module.requirementMissing"
@@ -189,7 +196,8 @@ def test_T_MOD_10_game_system_turns_elements_on(tmp_path):
     game, theme = _game_with(tmp_path, lib, "test.mini", turned_on=["scene", "read-aloud"])
     s = _session_for(lib, tmp_path, game, theme)
     # M5: the layout markers, the table of contents and footnotes are always on (9.3, F7.4, F7.7).
-    always = {"page-break", "column-break", "full-width", "keep-together", "contents", "footnote"}
+    # 0.7.0 (F7.4, issue #20): the Columns section is a layout marker too.
+    always = {"page-break", "column-break", "full-width", "keep-together", "contents", "footnote", "column-section"}
     assert set(s.kinds()) == {"scene", "read-aloud"} | always
     assert {e["id"] for e in s.editor_info()["elements"]} == {"scene", "read-aloud"} | always
     text = '#scene(title: "S")[\n#read-aloud[Read.]\n\n#information[Not here.]\n]\n'

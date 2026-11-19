@@ -181,6 +181,7 @@ The definition, `elements/rumour.json`:
 - `variants` is an optional list of looks, such as Secret, Public and Hint for Information, each with an `id` and a `label`. The theme gives each variant its colour.
 - `page_start` is `always`, `never` or `when-needed`; `never_split` keeps it on one page; `handout` offers "Handout also".
 - `editor` is `frame`, `form` or `chip`; `shortcut` a suggested key such as `"Ctrl+Shift+R"`; `toolbar_group` the toolbar group it joins: `structure`, `boxes`, `people`, `rules` or `handouts`.
+- `paste_labels` is optional: the words an author may have typed at the start of a pasted line for this element, such as `{"names": ["Rumour", "Rykte"], "fields": {"heard-from": ["Heard from"]}}`, with `variants` too for an element that has them. When the line is converted into your element, the label is removed, and a field label fills that field. The element's own name and field labels count without being listed. An element whose body may hold Information, such as a person card, can also list `knows`, the words that start a line about what the person knows, such as `["She knows", "Hon vet"]`: the lines right after the converted one that start with them become Information inside it, with the variant named in brackets, as in "She knows (secret): …".
 
 The Typst function, in `typst/elements.typ`. Its `make` function returns one function per element of your own. Each checks the author's fields and hands them to the theme's renderer for that element, `r.<id>`, with the body and the printed words:
 
@@ -284,7 +285,7 @@ Changed something? One version number stands for one content, because adventures
 
 Then:
 
-- File ▸ New adventure… offers your game system, with every general theme.
+- File ▸ New adventure… offers your game system, with every theme that has a template for each of its blocks; a theme without one for an element you added is shown greyed out, with the reason.
 - Insert each of your elements and fill in every field. Try a wrong value too: the message should appear on the right line.
 - Write the example above into a scene and look at the preview. Your own elements are drawn in a plain frame until a theme gives them a template.
 - Help ▸ Check installation ▸ Run the theme self-test builds a test adventure with every theme offered for your game system.
@@ -304,4 +305,4 @@ On Windows, open the folder, select everything in it, choose Send to ▸ Compres
 
 Once it is installed, Settings ▸ Modules ▸ Save as .scmod file… writes the same file again whenever you need it.
 
-Whoever receives it installs it with File ▸ Settings… ▸ Modules ▸ Install module…. If you also made a theme for it, share both: the theme names your game system in its `requires`, so it is offered only for it. An adventure never carries its modules: send the `.scav` file together with the `.scmod` files it needs. Opened without them, the adventure lists the modules it needs.
+Whoever receives it installs it with File ▸ Settings… ▸ Modules ▸ Install module…. If you also made a theme for it, share both: name your game system in the theme's `made_for`, so it comes first in that game system's list. An adventure never carries its modules: send the `.scav` file together with the `.scmod` files it needs. Opened without them, the adventure lists the modules it needs.

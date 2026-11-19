@@ -4,7 +4,7 @@
 // sits between rust rules. The head is never split; a long creature may
 // break only between its sections.
 
-#import "_style.typ": accent, quiet, rust, label, small-caps-label, caps-label, blank, curl-frame, fonts, framed-text, spacing, gap
+#import "_style.typ": accent, quiet, rust, label, small-caps-label, caps-label, blank, curl-frame, fonts, framed-text, spacing, gap, stat-row
 
 #let render(f, body, labels) = curl-frame(breakable: true, seed: 41, {
   // F8 (M6 part C): spaced like the person card: a small gap after the
@@ -14,19 +14,8 @@
     if not blank(f.type) {
       align(center, small-caps-label(f.type, fill: quiet))
     }
-    if f.stats.len() > 0 {
-      block(
-        width: 100%,
-        stroke: (top: 0.7pt + accent, bottom: 0.7pt + accent),
-        inset: (y: 5pt),
-        above: gap(spacing.small),
-        align(center, f.stats.map(s => box[
-          #caps-label(s.label, size: 7pt)
-          #h(0.2em)
-          #text(size: 10.5pt, weight: "bold", fill: accent, if s.value == none { [–] } else { str(s.value) })
-        ]).join(h(0.9em))),
-      )
-    }
+    // F8 (0.7.8): the stats are drawn by the theme's stat-row.
+    if f.stats.len() > 0 { stat-row(f.stats) }
     if not blank(f.description) { block(above: gap(spacing.small), framed-text(f.description)) }
   })
   for section in f.sections {

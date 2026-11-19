@@ -1,0 +1,29 @@
+{
+  "id": "column-section",
+  "name": "element.column-section",
+  "category": "block",
+  "body": "blocks",
+  "fields": [
+    {
+      "name": "count",
+      "kind": "number",
+      "min": 2,
+      "max": 3,
+      "required": false,
+      "default": 2,
+      "label": "field.column-section.count"
+    }
+  ],
+  "variants": [],
+  "page_start": "never",
+  "never_split": false,
+  "handout": false,
+  "editor": "frame",
+  "shortcut": null,
+  "always_on": true,
+  "renderer": false,
+  "toolbar_group": "structure",
+  "allow": null,
+  "only_one_column": true,
+  "spec": "F7.4 layout marker (0.7.0, issue #20): on a one-column page, the blocks it holds in 2 or 3 columns; the mirror of the full-width section. It stays where it is written."
+}

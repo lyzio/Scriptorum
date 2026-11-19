@@ -50,6 +50,8 @@ export interface ShellContext {
   adventureName: () => string | null;
   addFont: () => void;
   onStartMode: (mode: string) => void;
+  /** F25 (0.7.4): the switched-on extensions changed; menus follow. */
+  extensionsChanged: () => Promise<void>;
 }
 
 let ctx: ShellContext;
@@ -330,6 +332,7 @@ async function renderSection(section: string): Promise<void> {
   if (section === "application") renderApplication();
   else if (section === "colours") renderColours();
   else if (section === "modules") renderModules();
+  else if (section === "extensions") await renderExtensions();
   else if (section === "adventure") await ctx.fillAdventure();
 }
 
@@ -384,6 +387,16 @@ function renderApplication(): void {
   open.addEventListener("click", () => call("openCrashLogFolder"));
   logs.append(h("span", undefined, t("settings.app.crashLogs")), h("code", undefined, app.crashLogs), open);
   page.append(logs);
+  // F25.1 (0.7.4): Block all connections outside the app, on by default.
+  page.append(h("h3", undefined, t("settings.app.connections")));
+  const blocked = h("input");
+  blocked.type = "checkbox";
+  blocked.id = "app-connectionsBlocked";
+  blocked.checked = v.connections_blocked !== false;
+  blocked.addEventListener("change", () => setApp({ connections_blocked: blocked.checked }));
+  const blockedLabel = h("label", "settings-check");
+  blockedLabel.append(blocked, h("span", undefined, t("settings.app.blockConnections")));
+  page.append(blockedLabel, h("p", "settings-note", t("settings.app.blockConnectionsNote")));
   // F21 (M6 part C): the weekly update check, off by default.
   page.append(h("h3", undefined, t("settings.app.updates")));
   const weekly = h("input");
@@ -674,6 +687,12 @@ async function moduleReply(reply: any, done?: (reply: any) => string): Promise<v
 async function installModule(path?: string): Promise<void> {
   setModuleStatus(t("settings.modules.checking"));
   const reply = path ? await call("installModulePath", path) : await call("installModuleDialog");
+  if (reply?.extension) {
+    // F25.5: an extension is installed only once the author agreed to what it needs.
+    setModuleStatus("");
+    await installExtension(reply.inspect, reply.path);
+    return;
+  }
   await moduleReply(reply, (r) => t(r.status === "already" ? "settings.modules.installed.already" : "settings.modules.installed.done",
     { name: r.module.name, version: r.module.version }));
 }
@@ -763,6 +782,178 @@ function renderModules(): void {
   page.append(table);
 }
 
+// --- extensions (F25, 0.7.4) ------------------------------------------------------------
+let extensionsInfo: any = null;
+let extensionStatus: { text: string; warn: boolean } | null = null;
+
+function setExtensionStatus(text: string, warn = false): void {
+  extensionStatus = text ? { text, warn } : null;
+  const note = document.getElementById("ext-status");
+  if (note) {
+    note.textContent = text;
+    note.classList.toggle("warn", warn);
+  }
+}
+
+/** F25.5: show what an extension needs and install it only if the author agrees. */
+export function askConsent(info: any): Promise<boolean> {
+  return new Promise((resolve) => {
+    const dialog = $<HTMLDialogElement>("ext-consent");
+    $("ext-consent-title").textContent = t(info.installedVersion ? "ext.consent.updateTitle" : "ext.consent.title",
+      { name: info.name, version: info.version });
+    $("ext-consent-about").textContent = [(info.authors ?? []).join(", "), info.licence, info.description].filter(Boolean).join(" · ");
+    const verified = $("ext-consent-verified");
+    verified.textContent = t(info.verified ? "ext.verified" : "ext.unverified");
+    verified.classList.toggle("unverified", !info.verified);
+    const added = new Set<string>(info.added ?? []);
+    $("ext-consent-lead").textContent = t(info.installedVersion ? "ext.consent.leadUpdate" : "ext.consent.lead");
+    const list = $("ext-consent-needs");
+    list.textContent = "";
+    for (const need of info.needs ?? []) {
+      const li = h("li", added.has(need) ? "added" : undefined, need);
+      if (added.has(need)) li.append(" ", h("em", undefined, t("ext.consent.new")));
+      list.append(li);
+    }
+    const finish = (yes: boolean) => {
+      $("ext-consent-ok").onclick = null;
+      $("ext-consent-cancel").onclick = null;
+      dialog.onclose = null;
+      if (dialog.open) dialog.close();
+      resolve(yes);
+    };
+    $("ext-consent-ok").onclick = () => finish(true);
+    $("ext-consent-cancel").onclick = () => finish(false);
+    dialog.onclose = () => finish(false);
+    dialog.showModal();
+  });
+}
+
+async function installExtension(info: any, path: string): Promise<void> {
+  if (!info?.ok) {
+    setExtensionStatus(info?.error ?? "", true);
+    return;
+  }
+  if (info.askConsent && !(await askConsent(info))) {
+    setExtensionStatus(t("ext.notInstalled", { name: info.name }));
+    if (currentSection === "extensions") await renderExtensions(false);
+    return;
+  }
+  const reply = await call("installExtension", path, true);
+  if (reply?.ok === false) {
+    setExtensionStatus(reply.error ?? "", true);
+  } else {
+    extensionsInfo = reply;
+    setExtensionStatus(t("ext.installed", { name: reply.installed.name, version: reply.installed.version }));
+  }
+  await ctx.extensionsChanged();
+  if (currentSection !== "extensions") await showSection("extensions");
+  else await renderExtensions(false);
+}
+
+async function installExtensionFile(path?: string): Promise<void> {
+  setExtensionStatus(t("settings.modules.checking"));
+  const reply = path ? await call("inspectExtension", path) : await call("inspectExtensionDialog");
+  if (reply?.cancelled) {
+    setExtensionStatus("");
+    return;
+  }
+  if (reply?.ok && !reply.extension) {
+    setExtensionStatus(t("ext.notExtension"), true);
+    return;
+  }
+  await installExtension(reply, reply?.path ?? path);
+}
+
+async function extensionReply(reply: any): Promise<void> {
+  if (reply?.ok === false) setExtensionStatus(reply.error ?? "", true);
+  else extensionsInfo = reply;
+  await ctx.extensionsChanged();
+  await renderExtensions(false);
+}
+
+async function renderExtensions(load = true): Promise<void> {
+  if (load || !extensionsInfo) extensionsInfo = await call("extensionList");
+  const info = extensionsInfo;
+  const page = $("sp-extensions");
+  page.textContent = "";
+  page.append(h("h3", undefined, t("settings.section.extensions")), h("p", "settings-note", t("ext.note")));
+  const tools = h("div", "module-tools");
+  const install = h("button", "primary", t("ext.installButton"));
+  install.type = "button";
+  install.id = "ext-install";
+  install.addEventListener("click", () => installExtensionFile());
+  const status = h("p", "module-status" + (extensionStatus?.warn ? " warn" : ""), extensionStatus?.text ?? "");
+  status.id = "ext-status";
+  status.setAttribute("role", "status");
+  tools.append(install, status);
+  page.append(tools);
+  if (info?.blocked) page.append(h("p", "settings-note", t("ext.blockedNote")));
+  if (!info?.extensions?.length) {
+    const none = h("p", "settings-note", t("ext.none"));
+    none.id = "ext-none";
+    page.append(none);
+    return;
+  }
+  for (const e of info.extensions) {
+    const card = h("div", "ext-card");
+    card.dataset.extension = e.id;
+    const head = h("div", "ext-card-head");
+    const title = h("div", "module-name", `${e.name} ${e.version}`);
+    title.append(h("span", "module-tag" + (e.verified ? "" : " warn"), t(e.verified ? "ext.tag.verified" : "ext.tag.unverified")));
+    if (e.needsNetwork) title.append(h("span", "module-tag", t("ext.tag.needsNetwork")));
+    const on = h("input");
+    on.type = "checkbox";
+    on.dataset.action = "on";
+    on.checked = !!e.on;
+    on.addEventListener("change", async () => extensionReply(await call("setExtensionOn", e.id, on.checked)));
+    const onLabel = h("label", "settings-check");
+    onLabel.append(on, h("span", undefined, t("ext.on")));
+    head.append(title, onLabel);
+    card.append(head);
+    card.append(h("div", "module-about", [e.authors?.join(", "), e.licence, e.id].filter(Boolean).join(" · ")));
+    if (e.description) card.append(h("div", "module-about module-desc", e.description));
+    if (!e.verified) card.append(h("p", "settings-note warn", t("ext.unverified")));
+    const needs = h("ul", "ext-needs");
+    for (const need of e.needs ?? []) needs.append(h("li", undefined, need));
+    card.append(h("div", "module-about", t("ext.needsTitle")), needs);
+    for (const s of e.settings ?? []) {
+      let control: HTMLElement;
+      if (s.kind === "choice") {
+        control = select(s.options.map((o: string) => [o, o]), s.value, async (x) =>
+          extensionReply(await call("setExtensionSetting", e.id, s.id, x)));
+      } else {
+        const input = h("input");
+        input.type = s.kind === "secret" ? "password" : "text";
+        input.spellcheck = false;
+        input.autocomplete = "off";
+        if (s.kind === "secret") input.placeholder = t(s.set ? "ext.secretSet" : "ext.secretNotSet");
+        else input.value = s.value ?? "";
+        input.addEventListener("change", async () => {
+          const value = input.value;
+          if (s.kind === "secret") input.value = "";
+          await extensionReply(await call("setExtensionSetting", e.id, s.id, value));
+        });
+        control = input;
+      }
+      control.dataset.setting = s.id;
+      card.append(row(s.label, control));
+      if (s.kind === "secret") card.append(h("p", "settings-note", t(info.keychain ? "ext.secretKeychain" : "ext.secretFile")));
+      if (s.note) card.append(h("p", "settings-note", s.note));
+    }
+    const actions = h("div", "module-actions");
+    const remove = h("button", undefined, t("settings.modules.remove"));
+    remove.type = "button";
+    remove.dataset.action = "remove";
+    remove.addEventListener("click", async () => {
+      if ((await ask(t("ext.confirmRemove", { name: e.name }), t("settings.modules.remove"), "", t("dialog.cancel"))) !== "yes") return;
+      await extensionReply(await call("removeExtension", e.id));
+    });
+    actions.append(remove);
+    card.append(actions);
+    page.append(card);
+  }
+}
+
 export function appValues(): any {
   return app?.values ?? null;
 }
@@ -789,6 +980,8 @@ export const shellTest = {
   editing: () => editing,
   editingDirty: () => editingDirty,
   installModule,
+  installExtensionFile,
+  extensions: () => extensionsInfo,
   saveModule: (key: string, path: string) => saveModule(app.modules.find((m: any) => `${m.id}@${m.version}` === key), path),
   moduleStatus: () => moduleStatus,
   startEditing: (name: string) => {

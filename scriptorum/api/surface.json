@@ -1,0 +1,348 @@
+{
+ "version": "1.1",
+ "operations": {
+  "adventure.add_font_file": [
+   "path"
+  ],
+  "adventure.add_image": [
+   "name",
+   "data_base64"
+  ],
+  "adventure.add_image_file": [
+   "path"
+  ],
+  "adventure.add_portrait_file": [
+   "path"
+  ],
+  "adventure.block_source": [
+   "block"
+  ],
+  "adventure.chapter": [
+   "index"
+  ],
+  "adventure.close_active_tab": [],
+  "adventure.close_all": [],
+  "adventure.discard_recovery": [
+   "session_id"
+  ],
+  "adventure.editor_info": [],
+  "adventure.export_suggestion": [
+   "kind",
+   "variant"
+  ],
+  "adventure.find": [
+   "query",
+   "match_case"
+  ],
+  "adventure.fonts": [],
+  "adventure.image_file": [
+   "path"
+  ],
+  "adventure.info": [],
+  "adventure.is_open": [],
+  "adventure.needs_file_name": [],
+  "adventure.new": [
+   "data"
+  ],
+  "adventure.open": [
+   "path"
+  ],
+  "adventure.open_example": [],
+  "adventure.path": [],
+  "adventure.recoveries": [],
+  "adventure.replace_all": [
+   "query",
+   "replacement",
+   "match_case"
+  ],
+  "adventure.restore_recovery": [
+   "session_id"
+  ],
+  "adventure.revert_to": [
+   "snapshot_id"
+  ],
+  "adventure.save_suggestion": [],
+  "adventure.save_to": [
+   "path",
+   "as_folder"
+  ],
+  "adventure.set_chapter_doc": [
+   "index",
+   "doc"
+  ],
+  "adventure.set_chapter_text": [
+   "index",
+   "text"
+  ],
+  "adventure.set_settings": [
+   "data"
+  ],
+  "adventure.set_theme": [
+   "theme_id"
+  ],
+  "adventure.settings": [],
+  "adventure.snapshot_tick": [],
+  "adventure.snapshots": [],
+  "adventure.switch_tab": [
+   "tab_id"
+  ],
+  "adventure.tabs": [],
+  "adventure.title": [],
+  "adventure.unsaved": [
+   "tab"
+  ],
+  "app.about": [],
+  "app.about_text": [
+   "ref"
+  ],
+  "app.answer_update_prompt": [
+   "weekly"
+  ],
+  "app.can_install": [],
+  "app.check_installation": [],
+  "app.check_updates": [
+   "auto"
+  ],
+  "app.connections_blocked": [],
+  "app.crash_log_folder": [],
+  "app.download_page": [],
+  "app.go_back": [],
+  "app.idea_site": [],
+  "app.install_update": [],
+  "app.offline_notice": [
+   "show_at_start"
+  ],
+  "app.offline_notice_seen": [],
+  "app.preview_zoom": [],
+  "app.reset_palette": [],
+  "app.save_palette": [
+   "request"
+  ],
+  "app.set_preview_zoom": [
+   "wanted"
+  ],
+  "app.set_settings": [
+   "changes"
+  ],
+  "app.set_update_address": [
+   "address"
+  ],
+  "app.set_zoom": [
+   "percent"
+  ],
+  "app.settings": [],
+  "app.spell": [
+   "words"
+  ],
+  "app.startup_report": [],
+  "app.strings": [],
+  "app.suggest": [
+   "word"
+  ],
+  "app.text": [
+   "key",
+   "details"
+  ],
+  "app.theme_self_test": [
+   "tab"
+  ],
+  "app.ui_ready": [],
+  "app.update_address": [],
+  "app.update_prompt": [
+   "ask_at_start"
+  ],
+  "app.use_moved_address": [],
+  "app.version_info": [],
+  "app.weekly_check_due": [],
+  "app.zoom": [],
+  "build.export": [
+   "path",
+   "variant"
+  ],
+  "build.preview": [
+   "player",
+   "show_breaks"
+  ],
+  "codex.apply_upgrade": [
+   "data"
+  ],
+  "codex.chart": [],
+  "codex.codex": [],
+  "codex.convert_info": [
+   "chapter",
+   "path"
+  ],
+  "codex.convert_to_entry": [
+   "chapter",
+   "path",
+   "type_id",
+   "link"
+  ],
+  "codex.create_entry": [
+   "type_id",
+   "title",
+   "fields",
+   "folder"
+  ],
+  "codex.create_map": [
+   "title",
+   "name",
+   "data_base64"
+  ],
+  "codex.create_map_file": [
+   "title",
+   "path"
+  ],
+  "codex.delete_entry": [
+   "entry_id"
+  ],
+  "codex.delete_map": [
+   "map_id"
+  ],
+  "codex.entry": [
+   "entry_id"
+  ],
+  "codex.map_info": [
+   "map_id"
+  ],
+  "codex.save_type": [
+   "data"
+  ],
+  "codex.scene_entries": [
+   "chapter",
+   "line"
+  ],
+  "codex.set_chart_positions": [
+   "data"
+  ],
+  "codex.undo": [],
+  "codex.update_entry": [
+   "entry_id",
+   "data"
+  ],
+  "codex.update_map": [
+   "data"
+  ],
+  "codex.upgrade_offer": [],
+  "extensions.accept_suggestion": [
+   "suggestion_id"
+  ],
+  "extensions.cancel_picture": [
+   "picture_id"
+  ],
+  "extensions.contributions": [],
+  "extensions.findings": [],
+  "extensions.inspect": [
+   "path"
+  ],
+  "extensions.install": [
+   "path",
+   "agreed"
+  ],
+  "extensions.list": [],
+  "extensions.pictures_waiting": [],
+  "extensions.pump": [],
+  "extensions.regenerate_picture": [
+   "picture_id"
+  ],
+  "extensions.reject_suggestion": [
+   "suggestion_id"
+  ],
+  "extensions.remove": [
+   "ext_id"
+  ],
+  "extensions.run": [
+   "ext_id",
+   "command",
+   "context"
+  ],
+  "extensions.running": [],
+  "extensions.set_on": [
+   "ext_id",
+   "on"
+  ],
+  "extensions.set_setting": [
+   "ext_id",
+   "key",
+   "value"
+  ],
+  "extensions.stop_all": [],
+  "extensions.suggestions_open": [],
+  "extensions.tab_info": [],
+  "extensions.use_picture": [
+   "picture_id",
+   "as_portrait"
+  ],
+  "modules.apply_version": [],
+  "modules.cancel_version": [],
+  "modules.file_name": [
+   "module_id",
+   "version"
+  ],
+  "modules.game_system_fit": [
+   "gs_id",
+   "version"
+  ],
+  "modules.game_systems": [],
+  "modules.install": [
+   "path"
+  ],
+  "modules.preview_game_system": [
+   "data"
+  ],
+  "modules.preview_version": [
+   "which",
+   "version"
+  ],
+  "modules.remove": [
+   "module_id",
+   "version"
+  ],
+  "modules.save_to": [
+   "module_id",
+   "version",
+   "path"
+  ],
+  "modules.set_disabled": [
+   "module_id",
+   "version",
+   "disabled"
+  ]
+ },
+ "events": {
+  "adventure.closed": [
+   "tab"
+  ],
+  "adventure.edited": [
+   "tab"
+  ],
+  "adventure.opened": [
+   "tab",
+   "title",
+   "readOnly"
+  ],
+  "adventure.saved": [
+   "tab",
+   "path"
+  ],
+  "build.finished": [
+   "tab",
+   "ok",
+   "pages",
+   "errors",
+   "warnings"
+  ],
+  "codex.changed": [
+   "tab"
+  ],
+  "modules.changed": [
+   "rebuild"
+  ],
+  "settings.changed": [
+   "what"
+  ],
+  "text.changed": [
+   "tab"
+  ]
+ }
+}

@@ -301,14 +301,16 @@ def test_T_SRC_13_convert_to(ui):
     the next scene; each conversion is one undo step."""
     ui.run("window.__scriptorum.convert([1], 'scene')")
     source = text(ui)
-    assert '#scene(title: "Scene 1: The harbour")[' in source
-    assert source.index("Fog lies thick") > source.index("Scene 1: The harbour")
+    # Corrected for 0.7.0 step 3 (issue #2): the typed label "Scene 1:" goes
+    # when the line becomes a scene, here and in T-UI-12 below.
+    assert '#scene(title: "The harbour")[' in source
+    assert source.index("Fog lies thick") > source.index("The harbour")
     # "Scene 2" is inside scene 1 now; converting it starts a new scene after it.
     ui.run("window.__scriptorum.convert([1, 2], 'scene')")
     source = text(ui)
-    assert '#scene(title: "Scene 2: The chapel")[' in source
+    assert '#scene(title: "The chapel")[' in source
     outline = [o["title"] for o in ui.state()["outline"] if o["kind"] == "scene"]
-    assert outline == ["Scene 1: The harbour", "Scene 2: The chapel"]
+    assert outline == ["The harbour", "The chapel"]
     ui.run("window.__scriptorum.convert([1, 0], 'read-aloud')")
     assert "#read-aloud[Fog lies thick over the water.]" in text(ui)
     history = ui.state()["historyPos"]
@@ -360,7 +362,7 @@ def test_T_SRC_14_moving_blocks(ui):
         return true; })()"""
     ui.js(drag)
     source = text(ui)
-    assert source.index("The sexton keeps the records.") < source.index("#read-aloud") and source.index('"Scene 2') < source.index("#read-aloud")
+    assert source.index("The sexton keeps the records.") < source.index("#read-aloud") and source.index('"The chapel') < source.index("#read-aloud")
     # A scene can never be dropped inside another scene (or itself).
     before = ui.state()["text"]
     ui.js("""(() => {
@@ -377,8 +379,8 @@ def test_T_UI_12_outline_acts_and_scenes(ui):
     """T-UI-12: the outline shows acts and scenes; dragging a scene moves it
     in the text, as one undo step."""
     items = ui.js("[...document.querySelectorAll('#outline .outline-item')].map(b => [b.className, b.textContent])")
-    assert items == [["outline-item heading act", "Convert test"], ["outline-item scene", "1Scene 1: The harbour"],
-                     ["outline-item scene", "2Scene 2: The chapel"]]
+    assert items == [["outline-item heading act", "Convert test"], ["outline-item scene", "1The harbour"],
+                     ["outline-item scene", "2The chapel"]]
     history = ui.state()["historyPos"]
     ui.js(DRAG_HELPERS)
     ui.js("""(() => {
@@ -387,8 +389,8 @@ def test_T_UI_12_outline_acts_and_scenes(ui):
         window.__drag(lis[2], r.left + 40, r.top + 3);
         return true; })()""")
     source = text(ui)
-    assert source.index("Scene 2: The chapel") < source.index("Scene 1: The harbour")
-    assert [o["title"] for o in ui.state()["outline"] if o["kind"] == "scene"] == ["Scene 2: The chapel", "Scene 1: The harbour"]
+    assert source.index("The chapel") < source.index("The harbour")
+    assert [o["title"] for o in ui.state()["outline"] if o["kind"] == "scene"] == ["The chapel", "The harbour"]
     assert ui.state()["historyPos"] == history + 1
     ui.run("window.__scriptorum.undo()")
-    assert [o["title"] for o in ui.state()["outline"] if o["kind"] == "scene"] == ["Scene 1: The harbour", "Scene 2: The chapel"]
+    assert [o["title"] for o in ui.state()["outline"] if o["kind"] == "scene"] == ["The harbour", "The chapel"]

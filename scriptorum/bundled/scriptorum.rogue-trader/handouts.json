@@ -1,0 +1,73 @@
+{
+  "papers": [
+    {
+      "id": "star-chart",
+      "label": "paper.star-chart",
+      "outline": "#1E2A44",
+      "inner": "#B9C6D6",
+      "edge_mm": 0.6,
+      "corner": "round",
+      "folds": [
+        1,
+        2
+      ],
+      "edge": "soft",
+      "ruled": {
+        "colour": "#DCE3EB",
+        "gap_mm": 9
+      },
+      "marks": {
+        "colour": "#8FA3B8",
+        "opacity": 0.18,
+        "spots": [
+          2,
+          5
+        ],
+        "stains": [
+          0,
+          1
+        ],
+        "tears": [
+          0,
+          0
+        ],
+        "spot_mm": 0.8
+      },
+      "ink": "#1E2A44"
+    },
+    {
+      "id": "manifest",
+      "label": "paper.manifest",
+      "outline": "#8A6A2E",
+      "inner": "#D4C3A0",
+      "edge_mm": 0.4,
+      "corner": "none",
+      "folds": [
+        0,
+        1
+      ],
+      "ruled": {
+        "colour": "#E4DAC6",
+        "gap_mm": 7
+      },
+      "marks": {
+        "colour": "#A99878",
+        "opacity": 0.1,
+        "spots": [
+          0,
+          2
+        ],
+        "stains": [
+          0,
+          1
+        ],
+        "tears": [
+          0,
+          0
+        ]
+      },
+      "ink": "#1E2A44"
+    }
+  ],
+  "rules": "F6.5: the paper is never filled with a colour; outline, inner line, folds, marks and ink may be coloured; stains stay pale (opacity at most 0.2)."
+}

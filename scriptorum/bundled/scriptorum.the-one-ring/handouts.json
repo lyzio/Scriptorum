@@ -1,0 +1,68 @@
+{
+  "papers": [
+    {
+      "id": "vellum",
+      "label": "paper.vellum",
+      "outline": "#8A6E4E",
+      "inner": "#C9B28F",
+      "edge_mm": 0.6,
+      "corner": "round",
+      "folds": [
+        1,
+        2
+      ],
+      "edge": "soft",
+      "marks": {
+        "colour": "#A3262A",
+        "opacity": 0.1,
+        "spots": [
+          0,
+          1
+        ],
+        "stains": [
+          0,
+          0
+        ],
+        "tears": [
+          0,
+          0
+        ]
+      },
+      "ink": "#2A3550"
+    },
+    {
+      "id": "journey-log",
+      "label": "paper.journey-log",
+      "outline": "#6B5A4A",
+      "inner": "#D6C7AD",
+      "edge_mm": 1.1,
+      "corner": "fold",
+      "folds": [
+        0,
+        1
+      ],
+      "ruled": {
+        "colour": "#E2D6C2",
+        "gap_mm": 7.5
+      },
+      "marks": {
+        "colour": "#A99878",
+        "opacity": 0.12,
+        "spots": [
+          0,
+          2
+        ],
+        "stains": [
+          0,
+          1
+        ],
+        "tears": [
+          0,
+          0
+        ]
+      },
+      "ink": "#2B2622"
+    }
+  ],
+  "rules": "F6.5: the paper is never filled with a colour; outline, inner line, folds, marks and ink may be coloured; stains stay pale (opacity at most 0.2)."
+}
