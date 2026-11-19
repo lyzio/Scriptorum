@@ -6,7 +6,7 @@
 | Platform | GitHub Actions, ubuntu-24.04, Python 3.13, headless (the full suite); Linux (x86-64), headless, in the build session (the new and touched tests) |
 | Pinned versions | PySide6 6.8.3 (Qt 6.8 LTS) · typst 0.15.0 · spylls 0.1.7 · cryptography 48.0.1 · keyring 25.7.0 |
 | Date | 19 November 2026 |
-| Result | Pending GitHub's Tests run for this commit |
+| Result | **483 passed**, 0 failed, 1 skipped (T-DOC-05, which needs Zensical): GitHub's Tests run 44527571812 for commit 339d0cc |
 
 ## This build
 
@@ -16,7 +16,7 @@ Four more general themes, WHFRP, The One Ring, WH40KRP and Rogue Trader, and two
 
 | ID | Result | Notes |
 |---|---|---|
-| Every test of M1 to 0.7.7 | Pending | GitHub's run |
+| Every test of M1 to 0.7.7 | Pass | GitHub's run; the first run (commit 76d1dd9) failed 14 tests that list the bundled themes, fixed below |
 | T-LOOK-15 | Pass | New, build session: manifests, licences, no "Warhammer", fonts (font guard, static, å ä ö, licence beside), papers, the hooks in all eight themes, offered for both game systems, and `m4-look`, `m5-plain` and the example adventure built twice in each new theme with identical output and no theme warning |
 | T-MOD-01, T-LOOK-09, T-LOOK-13, T-LOOK-14 | Pass | Build session, with the four themes added to their lists |
 | T-BUILD-03 | Pass here | m1-basic exports to the reference checksum `8d2c3db82974b610e7a745d1b21bc6ed2cf4fac4e32d379bb28c7c351f7c8d69`, unchanged: the earlier themes print byte-identically with the hooks |
@@ -37,4 +37,7 @@ Pages 2 and 3 of `m5-plain` in each new theme: the bands, the chapter tab on the
 
 ## Corrections to existing tests
 
-T-LOOK-09 (`tests/test_m4.py`): the themes offered for the test game system and for Vaesen include the four new themes.
+- T-LOOK-09 (`tests/test_m4.py`): the themes offered for the test game system and for Vaesen include the four new themes.
+- T-UI-03 (`tests/test_ui_smoke.py`) and T-UI-19 (`tests/test_ui_m4.py`): the theme lists of the New adventure dialog and the settings page include the four new themes. T-UI-03 failing left its dialog open, so eight more tests of that file failed after it on GitHub; they pass again.
+- T-UI-26 (`tests/test_ui_m5.py`): the theme self-test now counts 16 passes (eight themes, two game systems), not 8.
+- T-LOOK-15 (new) read the fonts with fontTools, which GitHub's test machine does not have; it now uses the app's own font readers.
