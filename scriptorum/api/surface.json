@@ -1,5 +1,5 @@
 {
- "version": "1.0",
+ "version": "1.1",
  "operations": {
   "adventure.add_font_file": [
    "path"
@@ -103,11 +103,16 @@
   "app.check_updates": [
    "auto"
   ],
+  "app.connections_blocked": [],
   "app.crash_log_folder": [],
   "app.download_page": [],
   "app.go_back": [],
   "app.idea_site": [],
   "app.install_update": [],
+  "app.offline_notice": [
+   "show_at_start"
+  ],
+  "app.offline_notice_seen": [],
   "app.preview_zoom": [],
   "app.reset_palette": [],
   "app.save_palette": [
@@ -219,6 +224,36 @@
    "data"
   ],
   "codex.upgrade_offer": [],
+  "extensions.contributions": [],
+  "extensions.findings": [],
+  "extensions.inspect": [
+   "path"
+  ],
+  "extensions.install": [
+   "path",
+   "agreed"
+  ],
+  "extensions.list": [],
+  "extensions.pump": [],
+  "extensions.remove": [
+   "ext_id"
+  ],
+  "extensions.run": [
+   "ext_id",
+   "command",
+   "context"
+  ],
+  "extensions.running": [],
+  "extensions.set_on": [
+   "ext_id",
+   "on"
+  ],
+  "extensions.set_setting": [
+   "ext_id",
+   "key",
+   "value"
+  ],
+  "extensions.stop_all": [],
   "modules.apply_version": [],
   "modules.cancel_version": [],
   "modules.file_name": [

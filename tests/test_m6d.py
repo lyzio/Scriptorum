@@ -69,7 +69,7 @@ def test_T_REL_09_kit_takes_the_pins_from_the_app(tmp_path):
     needed library is refused; cryptography is needed from 0.6.7."""
     kit = kit_module()
     config = json.loads((KIT / "kit.json").read_text("utf-8"))
-    assert "pins" not in config and config["kit_version"] == "1.0.4"  # 1.0.4 from M6-0.6.10 (T-REL-14)
+    assert "pins" not in config and config["kit_version"] == "1.0.5"  # 1.0.5 from 0.7.4 (keyring, F25.18); 1.0.4 from M6-0.6.10
     assert kit.read_pins(ROOT) == app_pins()
     assert {"PySide6", "typst", "spylls", "cryptography"} <= set(app_pins())
     for text in (KIT / "build.py").read_text("utf-8"), (KIT / "common" / "scriptorum.spec").read_text("utf-8"):

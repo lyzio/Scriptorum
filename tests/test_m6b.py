@@ -269,9 +269,9 @@ def test_T_UI_34_about_window(ui):
     info = ui.js("window.__scriptorum.about.info()")
     names = {r["name"]: r for r in info["programs"]}
     # cryptography joined in M6-0.6.7 (F22: signatures on updates, section 7);
-    # the logo in M6-0.6.10 (F9, D16).
+    # the logo in M6-0.6.10 (F9, D16); keyring in 0.7.4 (F25.18, section 7).
     assert set(names) == {"Python", "Qt and PySide6", "Qt WebEngine (Chromium)", "Typst", "spylls", "cryptography",
-                          "Cytoscape.js", "Phosphor Icons (Light)", "Scriptorum logo"}
+                          "keyring", "Cytoscape.js", "Phosphor Icons (Light)", "Scriptorum logo"}
     assert names["Typst"]["version"] == "0.15.0" and names["Typst"]["licence"] == "Apache-2.0"
     assert names["spylls"]["licence"] == "MPL-2.0"  # its own licence file (the register said MIT)
     assert names["Qt and PySide6"]["version"].startswith("6.8")

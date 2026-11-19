@@ -564,6 +564,8 @@ def test_T_REL_05_download_and_install(ui, tmp_path):
     unpacked into the author's folder; the open adventure and its unsaved
     text are untouched; a version that needs a newer Python, Qt or Typst
     offers only the download page."""
+    # Corrected for 0.7.4 (F25.1): connections are blocked by default; on for this test.
+    ui.window.bridge.session.app_settings.update({"connections_blocked": False})
     bridge = ui.window.bridge
     bridge.versions = Versions(tmp_path / "home")
     load(ui, '#scene(title: "Harbour")[\nThe boats.\n]\n')
@@ -652,6 +654,8 @@ def test_T_UI_44_update_address(ui):
     Check for updates window; anything else is refused with a plain message;
     Use built-in address brings the built-in address back; with the
     placeholder built in, the entered address works on its own."""
+    # Corrected for 0.7.4 (F25.1): connections are blocked by default; on for this test.
+    ui.window.bridge.session.app_settings.update({"connections_blocked": False})
     bridge = ui.window.bridge
     settings = bridge.session.app_settings
     settings.update({"update_address": ""})
@@ -700,6 +704,8 @@ def test_T_UI_45_address_moved(ui):
     """T-UI-45: a signed update file that says the address has moved offers
     the new address; No changes nothing, Yes stores it and the next check
     asks only there; an unsigned or wrongly signed file is ignored."""
+    # Corrected for 0.7.4 (F25.1): connections are blocked by default; on for this test.
+    ui.window.bridge.session.app_settings.update({"connections_blocked": False})
     bridge = ui.window.bridge
     settings = bridge.session.app_settings
     settings.update({"update_address": ""})

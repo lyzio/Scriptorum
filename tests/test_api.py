@@ -50,7 +50,8 @@ def test_T_API_01_surface_and_version():
     docs/API.md describes every operation and event."""
     stored = json.loads((API_DIR / "surface.json").read_text("utf-8"))
     now = surface()
-    assert now["version"] == API_VERSION == stored["version"] == "1.0"
+    # Corrected for 0.7.4: 1.1 adds the extensions area (F25), an addition (9.2).
+    assert now["version"] == API_VERSION == stored["version"] == "1.1"
     assert now == stored, "the API's surface changed: raise API_VERSION (9.2) and store the new surface"
     doc = (ROOT / "docs" / "API.md").read_text("utf-8")
     assert f"Version **{API_VERSION}**" in doc
@@ -237,7 +238,9 @@ def test_T_API_06_one_network_gate(api):
         if re.search(r"\b(urllib\.request|urlopen|http\.client|socket\.|QNetworkAccessManager|requests\.)", text):
             users.append(file.relative_to(root).as_posix())
     assert users == ["api/net.py"]
-    # The update check asks only through the gate.
+    # The update check asks only through the gate. Corrected for 0.7.4
+    # (F25.1): connections are blocked by default, so they are turned on first.
+    api.session.app_settings.update({"connections_blocked": False})
     asked = []
     api.net.readers[net.UPDATE_FILE] = lambda address: asked.append(address) or b"{}"
     api.app.update_url = "https://example.org/scriptorum-update.json"

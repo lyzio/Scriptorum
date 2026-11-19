@@ -9,8 +9,8 @@ Scriptorum is a desktop text processor for game masters who write their own adve
 - **Looks come from themes.** An adventure can change its look or page size without any change to its text. Version 1 brings the Vaesen game system and theme, a Plain game system and theme for any game, and two more themes.
 - **Print-ready.** A live preview that matches the print, print-shop PDFs with bleed and crop marks, booklets, and accessible PDFs (PDF/UA).
 - **Safe with your work.** Crash-safe saving, recovery copies, snapshots and undo. Adventures are single `.scav` files you can e-mail, back up or keep in Git.
-- **Private.** No account, no tracking. Scriptorum makes no network requests, except to look for and download updates when you ask it to; every update is signed and checked before it is used.
-- **Extensible.** Game systems, themes, languages and palettes are modules. How to write a theme and How to write a game system are in the Help menu.
+- **Private.** No account, no tracking. Scriptorum is offline by default: with Block all connections outside the app on, it sends nothing to the internet. Turn it off in Settings to look for and download updates when you ask; every update is signed and checked before it is used.
+- **Extensible.** Game systems, themes, languages and palettes are modules. How to write a theme and How to write a game system are in the Help menu. Extensions add functions with their own code: each shows what it needs before you install it, does nothing until you switch it on, and runs in a program of its own.
 
 What each version brings is in the [changelog](CHANGELOG.md). The author guides, the API reference, the changelog and what is planned or waiting to be tested are also on the documentation website, [lyzio.github.io/Scriptorum](https://lyzio.github.io/Scriptorum/).
 

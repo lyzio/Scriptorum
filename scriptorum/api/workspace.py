@@ -18,7 +18,7 @@ from scriptorum.api.events import EventBus
 from scriptorum.api.net import NetworkGate
 from scriptorum.core.session import Session
 
-API_VERSION = "1.0"
+API_VERSION = "1.1"   # 1.1 (0.7.4): extensions (F25) and Block all connections
 
 
 class Api:
@@ -29,6 +29,7 @@ class Api:
         from scriptorum.api.app import AppArea
         from scriptorum.api.build import BuildArea
         from scriptorum.api.codex import CodexArea
+        from scriptorum.api.extensions import ExtensionsArea
         from scriptorum.api.modules import ModulesArea
 
         self.sessions: List[Session] = [session]
@@ -36,12 +37,14 @@ class Api:
         self.headless = headless
         self.crash_folder: Optional[str] = None   # tests point the crash log elsewhere
         self.events = EventBus()
-        self.net = NetworkGate()
+        # F25.1: the gate refuses everything while connections are blocked.
+        self.net = NetworkGate(lambda: bool(self.sessions[0].app_settings.get("connections_blocked")))
         self.app = AppArea(self, spelling)
         self.adventure = AdventureArea(self)
         self.codex = CodexArea(self)
         self.build = BuildArea(self)
         self.modules = ModulesArea(self)
+        self.extensions = ExtensionsArea(self)   # F25 (0.7.4)
 
     # --- the active tab -----------------------------------------------------------
     @property

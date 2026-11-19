@@ -13,6 +13,15 @@ if __name__ == "__main__":
 
         serve()
         sys.exit(0)
+    if "--scriptorum-extension-host" in sys.argv[1:]:
+        # F25.11 (0.7.4): one switched-on extension in a process of its own.
+        from scriptorum.boot import helper_path
+
+        helper_path()
+        from scriptorum.core.exthost import serve
+
+        serve()
+        sys.exit(0)
     # F22 (M6 part C5): the start-up step runs a newer verified version from
     # the author's own Scriptorum folder, or this installed version.
     from scriptorum.boot import run

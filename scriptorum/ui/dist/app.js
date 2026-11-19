@@ -3017,6 +3017,7 @@
     if (section2 === "application") renderApplication();
     else if (section2 === "colours") renderColours();
     else if (section2 === "modules") renderModules();
+    else if (section2 === "extensions") await renderExtensions();
     else if (section2 === "adventure") await ctx.fillAdventure();
   }
   function row(label, control) {
@@ -3076,6 +3077,15 @@
     open.addEventListener("click", () => call("openCrashLogFolder"));
     logs.append(h2("span", void 0, t("settings.app.crashLogs")), h2("code", void 0, app.crashLogs), open);
     page.append(logs);
+    page.append(h2("h3", void 0, t("settings.app.connections")));
+    const blocked = h2("input");
+    blocked.type = "checkbox";
+    blocked.id = "app-connectionsBlocked";
+    blocked.checked = v.connections_blocked !== false;
+    blocked.addEventListener("change", () => setApp({ connections_blocked: blocked.checked }));
+    const blockedLabel = h2("label", "settings-check");
+    blockedLabel.append(blocked, h2("span", void 0, t("settings.app.blockConnections")));
+    page.append(blockedLabel, h2("p", "settings-note", t("settings.app.blockConnectionsNote")));
     page.append(h2("h3", void 0, t("settings.app.updates")));
     const weekly = h2("input");
     weekly.type = "checkbox";
@@ -3343,6 +3353,11 @@
   async function installModule(path) {
     setModuleStatus(t("settings.modules.checking"));
     const reply = path ? await call("installModulePath", path) : await call("installModuleDialog");
+    if (reply?.extension) {
+      setModuleStatus("");
+      await installExtension(reply.inspect, reply.path);
+      return;
+    }
     await moduleReply(reply, (r) => t(
       r.status === "already" ? "settings.modules.installed.already" : "settings.modules.installed.done",
       { name: r.module.name, version: r.module.version }
@@ -3425,6 +3440,170 @@
     }
     page.append(table2);
   }
+  var extensionsInfo = null;
+  var extensionStatus = null;
+  function setExtensionStatus(text, warn3 = false) {
+    extensionStatus = text ? { text, warn: warn3 } : null;
+    const note = document.getElementById("ext-status");
+    if (note) {
+      note.textContent = text;
+      note.classList.toggle("warn", warn3);
+    }
+  }
+  function askConsent(info2) {
+    return new Promise((resolve2) => {
+      const dialog = $3("ext-consent");
+      $3("ext-consent-title").textContent = t(
+        info2.installedVersion ? "ext.consent.updateTitle" : "ext.consent.title",
+        { name: info2.name, version: info2.version }
+      );
+      $3("ext-consent-about").textContent = [(info2.authors ?? []).join(", "), info2.licence, info2.description].filter(Boolean).join(" \xB7 ");
+      const verified = $3("ext-consent-verified");
+      verified.textContent = t(info2.verified ? "ext.verified" : "ext.unverified");
+      verified.classList.toggle("unverified", !info2.verified);
+      const added = new Set(info2.added ?? []);
+      $3("ext-consent-lead").textContent = t(info2.installedVersion ? "ext.consent.leadUpdate" : "ext.consent.lead");
+      const list = $3("ext-consent-needs");
+      list.textContent = "";
+      for (const need of info2.needs ?? []) {
+        const li = h2("li", added.has(need) ? "added" : void 0, need);
+        if (added.has(need)) li.append(" ", h2("em", void 0, t("ext.consent.new")));
+        list.append(li);
+      }
+      const finish = (yes) => {
+        $3("ext-consent-ok").onclick = null;
+        $3("ext-consent-cancel").onclick = null;
+        dialog.onclose = null;
+        if (dialog.open) dialog.close();
+        resolve2(yes);
+      };
+      $3("ext-consent-ok").onclick = () => finish(true);
+      $3("ext-consent-cancel").onclick = () => finish(false);
+      dialog.onclose = () => finish(false);
+      dialog.showModal();
+    });
+  }
+  async function installExtension(info2, path) {
+    if (!info2?.ok) {
+      setExtensionStatus(info2?.error ?? "", true);
+      return;
+    }
+    if (info2.askConsent && !await askConsent(info2)) {
+      setExtensionStatus(t("ext.notInstalled", { name: info2.name }));
+      if (currentSection === "extensions") await renderExtensions(false);
+      return;
+    }
+    const reply = await call("installExtension", path, true);
+    if (reply?.ok === false) {
+      setExtensionStatus(reply.error ?? "", true);
+    } else {
+      extensionsInfo = reply;
+      setExtensionStatus(t("ext.installed", { name: reply.installed.name, version: reply.installed.version }));
+    }
+    await ctx.extensionsChanged();
+    if (currentSection !== "extensions") await showSection("extensions");
+    else await renderExtensions(false);
+  }
+  async function installExtensionFile(path) {
+    setExtensionStatus(t("settings.modules.checking"));
+    const reply = path ? await call("inspectExtension", path) : await call("inspectExtensionDialog");
+    if (reply?.cancelled) {
+      setExtensionStatus("");
+      return;
+    }
+    if (reply?.ok && !reply.extension) {
+      setExtensionStatus(t("ext.notExtension"), true);
+      return;
+    }
+    await installExtension(reply, reply?.path ?? path);
+  }
+  async function extensionReply(reply) {
+    if (reply?.ok === false) setExtensionStatus(reply.error ?? "", true);
+    else extensionsInfo = reply;
+    await ctx.extensionsChanged();
+    await renderExtensions(false);
+  }
+  async function renderExtensions(load = true) {
+    if (load || !extensionsInfo) extensionsInfo = await call("extensionList");
+    const info2 = extensionsInfo;
+    const page = $3("sp-extensions");
+    page.textContent = "";
+    page.append(h2("h3", void 0, t("settings.section.extensions")), h2("p", "settings-note", t("ext.note")));
+    const tools = h2("div", "module-tools");
+    const install = h2("button", "primary", t("ext.installButton"));
+    install.type = "button";
+    install.id = "ext-install";
+    install.addEventListener("click", () => installExtensionFile());
+    const status = h2("p", "module-status" + (extensionStatus?.warn ? " warn" : ""), extensionStatus?.text ?? "");
+    status.id = "ext-status";
+    status.setAttribute("role", "status");
+    tools.append(install, status);
+    page.append(tools);
+    if (info2?.blocked) page.append(h2("p", "settings-note", t("ext.blockedNote")));
+    if (!info2?.extensions?.length) {
+      const none = h2("p", "settings-note", t("ext.none"));
+      none.id = "ext-none";
+      page.append(none);
+      return;
+    }
+    for (const e of info2.extensions) {
+      const card = h2("div", "ext-card");
+      card.dataset.extension = e.id;
+      const head = h2("div", "ext-card-head");
+      const title = h2("div", "module-name", `${e.name} ${e.version}`);
+      title.append(h2("span", "module-tag" + (e.verified ? "" : " warn"), t(e.verified ? "ext.tag.verified" : "ext.tag.unverified")));
+      if (e.needsNetwork) title.append(h2("span", "module-tag", t("ext.tag.needsNetwork")));
+      const on4 = h2("input");
+      on4.type = "checkbox";
+      on4.dataset.action = "on";
+      on4.checked = !!e.on;
+      on4.addEventListener("change", async () => extensionReply(await call("setExtensionOn", e.id, on4.checked)));
+      const onLabel = h2("label", "settings-check");
+      onLabel.append(on4, h2("span", void 0, t("ext.on")));
+      head.append(title, onLabel);
+      card.append(head);
+      card.append(h2("div", "module-about", [e.authors?.join(", "), e.licence, e.id].filter(Boolean).join(" \xB7 ")));
+      if (e.description) card.append(h2("div", "module-about module-desc", e.description));
+      if (!e.verified) card.append(h2("p", "settings-note warn", t("ext.unverified")));
+      const needs = h2("ul", "ext-needs");
+      for (const need of e.needs ?? []) needs.append(h2("li", void 0, need));
+      card.append(h2("div", "module-about", t("ext.needsTitle")), needs);
+      for (const s of e.settings ?? []) {
+        let control;
+        if (s.kind === "choice") {
+          control = select(s.options.map((o) => [o, o]), s.value, async (x2) => extensionReply(await call("setExtensionSetting", e.id, s.id, x2)));
+        } else {
+          const input = h2("input");
+          input.type = s.kind === "secret" ? "password" : "text";
+          input.spellcheck = false;
+          input.autocomplete = "off";
+          if (s.kind === "secret") input.placeholder = t(s.set ? "ext.secretSet" : "ext.secretNotSet");
+          else input.value = s.value ?? "";
+          input.addEventListener("change", async () => {
+            const value = input.value;
+            if (s.kind === "secret") input.value = "";
+            await extensionReply(await call("setExtensionSetting", e.id, s.id, value));
+          });
+          control = input;
+        }
+        control.dataset.setting = s.id;
+        card.append(row(s.label, control));
+        if (s.kind === "secret") card.append(h2("p", "settings-note", t(info2.keychain ? "ext.secretKeychain" : "ext.secretFile")));
+        if (s.note) card.append(h2("p", "settings-note", s.note));
+      }
+      const actions = h2("div", "module-actions");
+      const remove2 = h2("button", void 0, t("settings.modules.remove"));
+      remove2.type = "button";
+      remove2.dataset.action = "remove";
+      remove2.addEventListener("click", async () => {
+        if (await ask(t("ext.confirmRemove", { name: e.name }), t("settings.modules.remove"), "", t("dialog.cancel")) !== "yes") return;
+        await extensionReply(await call("removeExtension", e.id));
+      });
+      actions.append(remove2);
+      card.append(actions);
+      page.append(card);
+    }
+  }
   function appValues() {
     return app?.values ?? null;
   }
@@ -3449,6 +3628,8 @@
     editing: () => editing,
     editingDirty: () => editingDirty,
     installModule,
+    installExtensionFile,
+    extensions: () => extensionsInfo,
     saveModule: (key, path) => saveModule(app.modules.find((m) => `${m.id}@${m.version}` === key), path),
     moduleStatus: () => moduleStatus,
     startEditing: (name) => {
@@ -35015,6 +35196,10 @@
     // M3: history positions at which a codex or map change was made, so Undo
     // undoes it in the core (F4.12).
     worldMarks: [],
+    // F25.12 (0.7.4): undo steps an extension made, named after it.
+    extUndo: [],
+    // F25.17: the switched-on extensions' menu items, block actions and panels.
+    extensions: [],
     handoutsOnly: false,
     adventureId: null,
     navTab: "outline"
@@ -35098,6 +35283,8 @@
     const mark = state.worldMarks[state.worldMarks.length - 1];
     if (mark !== void 0 && mark >= state.historyPos) {
       state.worldMarks.pop();
+      const named = state.extUndo[state.extUndo.length - 1];
+      if (named && named.mark === mark) state.extUndo.pop();
       const system = [state.info?.gameSystem?.id, state.info?.theme?.id].join(" ");
       const reply = await call("worldUndo");
       if (reply?.ok) {
@@ -35490,7 +35677,7 @@
         { label: t("menu.quit"), action: () => call("quit"), shortcut: "Ctrl+Q" }
       ] },
       { key: "menu.edit", items: [
-        { label: t("menu.undo"), action: () => undo(), shortcut: "Ctrl+Z", disabled: !has || ro },
+        { label: undoLabel(), action: () => undo(), shortcut: "Ctrl+Z", disabled: !has || ro },
         { label: t("menu.redo"), action: () => redo(), shortcut: "Ctrl+Shift+Z", disabled: !has || ro },
         { label: t("menu.find"), action: () => openFind(), shortcut: "Ctrl+F", disabled: !has },
         { label: t("menu.upgrade"), action: () => offerUpgrade(true), disabled: !has || ro }
@@ -35520,6 +35707,8 @@
         { label: t("editor.toNumbered"), action: () => listKind(true), disabled: !has || ro || focusedList()?.ordered !== false },
         { label: t("menu.style"), disabled: !has || ro, children: styleKinds().map((kind) => ({ label: kindLabel(kind), action: () => setStyle2(kind) })) }
       ] },
+      // F25.17 (0.7.4): only while a switched-on extension has a menu item.
+      ...extensionMenu().length ? [{ key: "menu.extensions", items: extensionMenu() }] : [],
       { key: "menu.help", items: [
         { label: t("menu.example"), action: () => openExample() },
         // F9 (M5): the start-up checks on demand, with the theme self-test.
@@ -35536,6 +35725,72 @@
         { label: t("menu.about"), action: () => openAbout() }
       ] }
     ];
+  }
+  function undoLabel() {
+    const mark = state.worldMarks[state.worldMarks.length - 1];
+    const named = state.extUndo[state.extUndo.length - 1];
+    if (named && mark !== void 0 && named.mark === mark && mark >= state.historyPos) return t("menu.undoNamed", { name: named.name });
+    return t("menu.undo");
+  }
+  function extensionMenu() {
+    const has = !!state.info?.hasDocument;
+    const items = [];
+    for (const e of state.extensions) {
+      if (!e.menu?.length) continue;
+      items.push({ label: e.name, heading: true });
+      for (const m of e.menu) items.push({ label: m.label, action: () => runExtension(e.id, m.id, {}), disabled: !has });
+    }
+    return items;
+  }
+  async function runExtension(id2, command, context) {
+    await flush();
+    const reply = await call("runExtension", id2, command, JSON.stringify({ chapter: state.chapterIndex, line: state.line, ...context }));
+    if (reply?.ok === false) showMessage(reply.error ?? "");
+  }
+  async function loadExtensions() {
+    state.extensions = await call("extensionContributions") ?? [];
+    buildMenus();
+  }
+  async function onExtensionNotice(n) {
+    if (n.kind === "findings") {
+      showFindings(n);
+    } else if (n.kind === "done" || n.kind === "failed") {
+      if (n.wrote) {
+        await reloadAfterWorld();
+        state.worldMarks.push(state.historyPos);
+        state.extUndo.push({ mark: state.historyPos, name: n.undoName });
+        buildMenus();
+      }
+      if (n.kind === "failed" || !n.ok) showMessage(n.message);
+      else if (n.wrote) flashStatus(t("ext.changed", { name: n.name, label: n.label }) + (n.message ? " " + n.message : ""));
+      else flashStatus(n.message || t("ext.done", { name: n.name, label: n.label }));
+    } else if (n.kind === "switchedOff") {
+      showMessage(n.message);
+      await loadExtensions();
+    }
+    document.body.dataset.extNotices = String(Number(document.body.dataset.extNotices || 0) + 1);
+  }
+  function showFindings(n) {
+    $6("ext-panel-title").textContent = n.title || n.name;
+    $6("ext-panel-from").textContent = t("ext.findingsFrom", { name: n.name, count: n.items.length });
+    const list = $6("ext-findings");
+    list.textContent = "";
+    if (!n.items.length) list.append(Object.assign(document.createElement("li"), { textContent: t("ext.findingsNone") }));
+    for (const item of n.items) {
+      const li = document.createElement("li");
+      li.textContent = item.text;
+      if (typeof item.line === "number") {
+        li.classList.add("goes");
+        li.addEventListener("click", async () => {
+          const chapter = typeof item.chapter === "number" ? item.chapter : state.chapterIndex;
+          if (chapter !== state.chapterIndex && chapter < (state.info?.chapters ?? []).length) await loadChapter(chapter, true);
+          if (state.mode === "source") source.goToLine(item.line);
+          else visual.scrollToLine(item.line);
+        });
+      }
+      list.append(li);
+    }
+    $6("ext-panel").classList.remove("hidden");
   }
   function focusedList() {
     const place = visual.focused();
@@ -36133,10 +36388,14 @@
       const convert = visual.convertKinds(place);
       if (convert.length) {
         items.push({ label: t("editor.convertTo"), heading: true });
-        for (const kind of convert) items.push({ label: kindLabel(kind), action: () => visual.convert(place, kind) });
+        for (const kind2 of convert) items.push({ label: kindLabel(kind2), action: () => visual.convert(place, kind2) });
       }
+      const target = place.list.blocks[place.index];
+      const kind = target?.type === "element" ? target.kind : target?.type;
+      const actions = state.extensions.flatMap((e) => (e.blockActions ?? []).filter((a) => !a.kinds?.length || a.kinds.includes(kind)).map((a) => ({ label: `${e.name}: ${a.label}`, action: () => runExtension(e.id, a.id, { block: { kind, path: visual.pathOf(place) } }) })));
+      if (actions.length) items.push({ label: t("ext.blockActions"), heading: true }, ...actions);
       items.push({ label: t("editor.insertAfter"), heading: true });
-      items.push(...insertItems(visual.kindsFor(place.list, place.chain, null).filter((k) => place.chain.length === 0 || k !== "heading"), (kind) => insert(kind, place)));
+      items.push(...insertItems(visual.kindsFor(place.list, place.chain, null).filter((k) => place.chain.length === 0 || k !== "heading"), (kind2) => insert(kind2, place)));
     }
     contextItems = items;
     contextAt = { left: event3.clientX, top: event3.clientY };
@@ -37118,6 +37377,7 @@
     $6("update-open").classList.add("hidden");
     $6("update-install").classList.add("hidden");
     $6("update-install-text").classList.add("hidden");
+    $6("update-settings").classList.add("hidden");
     $6("update-address").textContent = "";
     if (!dialog.open) dialog.showModal();
     updateWanted = true;
@@ -37133,7 +37393,8 @@
       unreachable: t("update.unreachable"),
       invalid: t("update.invalid"),
       unsigned: t("update.unsigned"),
-      "no-key": t("update.noKey")
+      "no-key": t("update.noKey"),
+      blocked: t("update.blocked")
     };
     const newer = r.state === "newer";
     let text = newer ? t("update.newer", { version: r.version, current: r.current }) + (r.download ? "" : " " + t("update.noDownload")) : texts[r.state] ?? texts.invalid;
@@ -37144,6 +37405,7 @@
     $6("update-open").classList.toggle("hidden", !(newer && r.download));
     $6("update-open").classList.toggle("primary", !(newer && r.installable));
     $6("update-install").classList.toggle("hidden", !(newer && r.installable));
+    $6("update-settings").classList.toggle("hidden", r.state !== "blocked");
     $6("update-install").disabled = false;
     $6("update-install-text").classList.add("hidden");
     $6("update-address").textContent = r.address ? t(r.entered ? "update.addressEntered" : "update.addressBuiltIn", { address: r.address }) : "";
@@ -37168,6 +37430,7 @@
   }
   function onUpdateInstalled(r) {
     const reasons = {
+      blocked: t("update.blocked"),
       unreachable: t("update.installUnreachable"),
       runtime: t("update.needsInstaller")
     };
@@ -37193,10 +37456,11 @@
     if (reply?.ok) showMessage(t("update.goBackReady", { version: reply.version }));
   }
   async function offerUpdateQuestion() {
-    const reply = await call("updatePrompt");
-    if (reply?.ask) {
-      const answer = await ask(t("update.askText"), t("update.askYes"), "", t("update.askNo"));
-      await call("answerUpdatePrompt", answer === "yes");
+    const notice = await call("offlineNotice");
+    if (notice?.show) {
+      const answer = await ask(t("connections.offlineNotice"), t("connections.openSettings"), "", t("dialog.ok"));
+      await call("offlineNoticeSeen");
+      if (answer === "yes") await openSettingsWindow("application");
     }
     await call("weeklyUpdateCheck");
   }
@@ -37410,7 +37674,8 @@
       fillAdventure,
       adventureName: () => state.info?.hasDocument ? state.info.title : null,
       addFont: () => addFont(),
-      onStartMode: () => void 0
+      onStartMode: () => void 0,
+      extensionsChanged: () => loadExtensions()
     });
     setChipLabeler((kind, args) => {
       if (kind === "footnote") {
@@ -37583,6 +37848,12 @@
     on("suggestions", onSuggestions);
     on("selfTestFinished", onSelfTest);
     on("updateChecked", onUpdateChecked);
+    on("extensionNotice", (n) => onExtensionNotice(n));
+    $6("ext-panel-close").addEventListener("click", () => $6("ext-panel").classList.add("hidden"));
+    $6("update-settings").addEventListener("click", () => {
+      $6("update-dialog").close();
+      openSettingsWindow("application");
+    });
     $6("update-close").addEventListener("click", () => $6("update-dialog").close());
     $6("update-open").addEventListener("click", () => call("openDownloadPage"));
     $6("update-install").addEventListener("click", () => installUpdate());
@@ -37598,12 +37869,15 @@
     await refresh();
     state.ready = true;
     await call("uiReady");
+    await loadExtensions();
     await showStartupReport();
     await offerRecovery();
     await loadVersionInfo();
     await offerUpdateQuestion();
   }
   window.__scriptorum = {
+    // F25 (0.7.4): the extensions' items, for the tests.
+    extensions: { run: runExtension, load: loadExtensions, undoLabel, list: () => state.extensions },
     state: () => ({
       ready: state.ready,
       mode: state.mode,

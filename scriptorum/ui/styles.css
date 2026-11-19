@@ -733,3 +733,19 @@ body.preview-only .preview-pane { flex: 1; height: 100vh; box-sizing: border-box
 /* F7.2 (0.7.0, issue #21): the short mark beside the block the preview followed to. */
 .follow-mark { position: absolute; width: 4px; height: 22px; margin-top: -4px; border-radius: 2px; background: var(--accent); pointer-events: none; animation: follow-fade 1.2s ease-out forwards; }
 @keyframes follow-fade { 0% { opacity: 0.95; } 70% { opacity: 0.8; } 100% { opacity: 0; } }
+
+/* F25 (0.7.4): extensions. The findings panel shares the warnings panel's look,
+   placed a little higher so both can be open. */
+.ext-panel { bottom: 56px; right: 40px; }
+.ext-consent { max-width: 560px; }
+.ext-about { color: var(--muted); margin-top: 0; }
+.ext-verified { font-weight: 600; }
+.ext-verified.unverified { color: var(--error); }
+.ext-needs { margin: 6px 0 10px 18px; padding: 0; }
+.ext-needs li { margin: 3px 0; }
+.ext-needs li.added { font-weight: 600; }
+.ext-card { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin: 0 0 10px; background: var(--input); }
+.ext-card-head { display: flex; align-items: center; gap: 10px; }
+.ext-card-head .module-name { flex: 1; }
+.ext-card .settings-row { margin: 6px 0; }
+.ext-card .module-actions { margin-top: 8px; }

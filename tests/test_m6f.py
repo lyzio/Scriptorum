@@ -76,7 +76,7 @@ def test_T_REL_14_kit_writes_only_the_installer():
     assert "def source_archive" not in build and "source.zip" not in build
     assert "SHA256SUMS" not in finish and "user-docs" not in finish
     assert "zipfile" not in build
-    assert json.loads((ROOT / "packaging" / "kit.json").read_text("utf-8"))["kit_version"] == "1.0.4"
+    assert json.loads((ROOT / "packaging" / "kit.json").read_text("utf-8"))["kit_version"] in ("1.0.4", "1.0.5")  # corrected for 0.7.4: 1.0.5 adds keyring
     # The notes stay inside the installers.
     assert "INSTALL-macOS.txt" in build and "INSTALL-Windows.txt" in build
     for notes in (ROOT / "packaging" / "user-docs").glob("INSTALL-*.txt"):

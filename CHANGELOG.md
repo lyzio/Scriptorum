@@ -2,7 +2,15 @@
 
 What each version of Scriptorum brings, newest first. The section of a version is also the description of its [GitHub release](https://github.com/lyzio/Scriptorum/releases).
 
-## 0.7.3 — in progress (built in five steps on build/0.7.0, released once; each step has its own number)
+## 0.7.4 — in progress (built in six steps on build/0.7.0, released once; each step has its own number)
+
+### 0.7.4, step 5: extension modules and Block all connections (issue #27)
+
+- **Scriptorum is offline by default.** A new switch, Settings ▸ Application ▸ Block all connections outside the app, is on from the start, also on computers that had the weekly update check turned on. While it is on, Scriptorum sends nothing to the internet: Check for updates says so, with a button to the setting. The first start no longer asks about the weekly check; a short message says that Scriptorum is offline by default and how to get updates.
+- **Extensions.** A new kind of module adds functions to Scriptorum with its own program code. Before one is installed, Scriptorum shows what it needs (what it reads, whether it changes the adventure, which addresses it connects to) and installs it only if you agree; an update that needs more asks again. One signed by the project says so; any other is marked unverified. Its licence must work with Scriptorum's GPL, and an extension that uses an outside service, such as an AI, can only suggest changes, never make them.
+- **Settings ▸ Extensions** lists them. An installed extension does nothing until you switch it on. Each has its settings; a secret such as an API key is kept in the computer's own keychain. Removing an extension removes everything it stored.
+- **Running.** A switched-on extension runs in a program of its own and reaches your adventure only as far as it declared. Its items appear in an Extensions menu and on a block's right-click menu, and what it finds appears in a list where a click goes to the place. An extension that changes the text does so only when you ask it to, as one undo step named after it ("Undo Heading tidy: Raise headings"). If it crashes or does not answer within 30 seconds, Scriptorum says so and carries on; after three failures in one session it is switched off.
+- The chat, suggestion and picture panels and How to write an extension follow in 0.7.5.
 
 ### 0.7.3, step 4: the documentation website and the new logo (issue #34)
 

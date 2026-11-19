@@ -37,5 +37,6 @@
   "what.dictionary.en": "English (US) spell check",
   "what.dictionary.en-gb": "English (UK) spell check",
   "chromiumNote": "Chromium's own list of third-party notices is too long to show line by line. Below is Chromium's licence; the full list comes with the installers.",
-  "notFound": "This licence text could not be found."
+  "notFound": "This licence text could not be found.",
+  "what.keyring": "Keeps the secrets of extensions, such as an API key, in this computer's own keychain"
 }

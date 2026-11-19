@@ -1,8 +1,8 @@
 # The internal Scriptorum API
 
-Version **1.0** (0.7.0 step 1, design document F23, issue #29).
+Version **1.1** (1.0 in 0.7.0 step 1, design document F23, issue #29; 1.1 in 0.7.4 adds the extensions area and Block all connections outside the app, F25, issue #27).
 
-The internal API is the one layer between Scriptorum's core (`scriptorum/core/`) and everything that uses it. The app's own interface reaches it through the bridge (`scriptorum/app/bridge.py`), which keeps only what needs Qt: dialogs, file pickers, windows, timers, the clipboard, local file addresses for the web view and the WebChannel signals. Extension modules (#27) will use the same operations later, from a process of their own.
+The internal API is the one layer between Scriptorum's core (`scriptorum/core/`) and everything that uses it. The app's own interface reaches it through the bridge (`scriptorum/app/bridge.py`), which keeps only what needs Qt: dialogs, file pickers, windows, timers, the clipboard, local file addresses for the web view and the WebChannel signals. From 1.1 extension modules (F25) use it too, each from a process of its own, through the calls listed under extensions below.
 
 ```python
 from scriptorum.api import Api
@@ -19,7 +19,7 @@ api.build.export("/tmp/adventure.pdf")      # {"ok": True, ...}
 - **Plain data.** Every operation takes and returns JSON-safe data: text, numbers, true and false, `None`, lists and maps. Nothing returned is a Python object, so the same calls can travel as JSON over a pipe.
 - **Plain errors.** An operation that cannot do what it was asked returns `{"ok": False, "error": <text>, "key": <key>}`. The text comes from the interface-language module (F15); the key is its name there. No raw exception leaves the API. An unexpected error is written to a crash log in the app's own folder (F2.11) and returned as a plain error (`"logged": true`).
 - **The active tab.** Several adventures can be open, one per tab (F2.2). Operations work on the active tab; `adventure.switch_tab` changes it.
-- **One network gate.** Every network request goes through `api.net.fetch(purpose, address)` (`scriptorum/api/net.py`), and no other code in the app opens a connection (F23.6, D9). Today the purposes are `update-file` (F21) and `update-pack` (F22), each only when the author asks. `api.net.requests` lists every address asked.
+- **One network gate.** Every network request goes through `api.net.fetch(purpose, address)` (`scriptorum/api/net.py`), and no other code in the app opens a connection (F23.6, D9). The purposes are `update-file` (F21) and `update-pack` (F22), each only when the author asks, and from 1.1 a switched-on extension's request (`api.net.request`, F25.16). While Block all connections outside the app is on, which is the default, the gate refuses every request before anything is sent (`ConnectionsBlocked`; F25.1). `api.net.requests` lists every address asked and `api.net.refused` every one the switch stopped.
 - **Versions.** A change that breaks a caller raises the major number; an addition raises the minor number. `scriptorum.api.surface()` lists every operation and event with its inputs; `scriptorum/api/surface.json` holds the surface of this version, and a test fails when the two differ (T-API-01).
 
 ## Events
@@ -69,8 +69,11 @@ api.build.export("/tmp/adventure.pdf")      # {"ok": True, ...}
 | `version_info` | | the version running, the app's own, the one Go back would run, the start notice |
 | `go_back` | | Help ▸ Go back to version X, from the next start |
 | `weekly_check_due` | | whether the weekly check should run now (F21.4) |
-| `update_prompt` | ask_at_start | whether to ask the first-start question |
-| `answer_update_prompt` | weekly | the answer to it |
+| `update_prompt` | ask_at_start | from 1.1 always `{"ask": false}`: the question gave way to the offline message (F25.2) |
+| `answer_update_prompt` | weekly | the answer to it (kept for older callers) |
+| `connections_blocked` | | whether Block all connections outside the app is on (F25.1) |
+| `offline_notice` | show_at_start | whether to show the one-time offline message (F25.2) |
+| `offline_notice_seen` | | it was shown |
 | `download_page` | | the download page named in the last update file |
 
 ## adventure — the open adventures
@@ -146,3 +149,39 @@ api.build.export("/tmp/adventure.pdf")      # {"ok": True, ...}
 | `file_name` / `save_to` | module_id, version, path | Save as .scmod file… |
 | `preview_version` / `apply_version` / `cancel_version` | which, version | tries another module version in the preview first (F14.3) |
 | `game_system_fit` / `preview_game_system` | gs_id, version / data | Change game system (F14) |
+
+## extensions — extension modules (F25, from 1.1)
+
+| Operation | Inputs | Returns |
+|---|---|---|
+| `list` | | the installed extensions for Settings ▸ Extensions: on or off, needs in words, verified or not, settings (never a secret's value), whether the keychain is used, whether connections are blocked |
+| `contributions` | | the menu items, block actions and panels of the switched-on extensions |
+| `inspect` | path | what a .scmod file is; for an extension, its needs in words, the ones a newer version adds, verified or not, and whether the author must agree first; nothing is installed |
+| `install` | path, agreed | installs an extension the author agreed to (F25.5); a newer version replaces the older one, keeping the author's state |
+| `set_on` | ext_id, on | switches an extension on (its process starts) or off (it stops) (F25.10) |
+| `set_setting` | ext_id, key, value | one setting; a secret goes to the keychain, or to a file only the author's user can read (F25.18) |
+| `remove` | ext_id | removes it and everything it stored (F25.18) |
+| `run` | ext_id, command, context | the author clicked one of its items; the answer comes later as a notice (`done`) |
+| `findings` | | the findings lists shown |
+| `running` | | the extensions whose process runs |
+| `pump` | | handles what running extensions sent and notices a crash or a command over the time limit; the bridge calls it on a timer, on the window's thread |
+| `stop_all` | | stops every extension's process (the window closes) |
+
+Notices go to `api.extensions.listeners` (the bridge's `extensionNotice` signal): `done` (with `wrote` and `undoName` when it changed the text, one undo step), `findings`, `failed` (a crash, a start that failed, or 30 seconds without an answer, F25.14) and `switchedOff` (after three failures in one session).
+
+### What an extension's process may ask (F25.13)
+
+An extension runs in its own process (`scriptorum/core/exthost.py`) and talks to the app with one JSON message per line. Its calls are checked against the needs in its manifest; anything else is refused with a plain error and nothing changes.
+
+| Call | Needs | Returns |
+|---|---|---|
+| `adventure.info` | reads text | title, read-only, chapters, game system and theme |
+| `adventure.chapter` | reads text | `{"index", "text", "outline"}` of one chapter |
+| `codex.codex`, `codex.entry` | reads codex | the codex, one entry |
+| `adventure.settings` | reads settings | the adventure's settings |
+| `adventure.set_chapter_text` | changes: writes, and only while a command the author started runs | one change; everything a command writes is one undo step, refused if the author changed the text meanwhile |
+| `net.request` | a declared host (or the address entered in its settings) | through the gate, never following a redirect; `{secret:<id>}` in a header or the body is filled in by the app, so a secret never enters the extension's process |
+| `settings.get` | | its own settings, without secrets |
+
+Events it hears (F25.15): `adventure.opened`, `adventure.closed`, `adventure.saved`, `text.changed` and `build.finished` when it reads the text, `codex.changed` when it reads the codex.
+

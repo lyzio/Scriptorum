@@ -164,12 +164,14 @@
         <button id="sn-application" type="button" role="tab" data-section="application"><span data-i18n="settings.section.application"></span></button>
         <button id="sn-colours" type="button" role="tab" data-section="colours"><span data-i18n="settings.section.colours"></span></button>
         <button id="sn-modules" type="button" role="tab" data-section="modules"><span data-i18n="settings.section.modules"></span></button>
+        <button id="sn-extensions" type="button" role="tab" data-section="extensions"><span data-i18n="settings.section.extensions"></span></button>
         <button id="sn-adventure" type="button" role="tab" data-section="adventure"><span data-i18n="settings.section.adventure"></span><small id="sn-adventure-name"></small></button>
       </nav>
       <div class="settings-pages">
         <div id="sp-application" class="settings-page hidden"></div>
         <div id="sp-colours" class="settings-page hidden"></div>
         <div id="sp-modules" class="settings-page hidden"></div>
+        <div id="sp-extensions" class="settings-page hidden"></div>
         <div id="sp-adventure" class="settings-page hidden">
     <h3 data-i18n="settings.look"></h3>
     <div class="settings-row"><span data-i18n="settings.gameSystem"></span><strong id="set-gameSystem"></strong><select id="set-gameSystemPick" data-i18n-aria="settings.changeGameSystem"></select><label class="version-pick"><span data-i18n="settings.version"></span><select id="set-gameSystemVersion" data-i18n-aria="settings.gameSystemVersion"></select></label></div>
@@ -380,6 +382,7 @@
   <p id="update-address" class="update-address"></p>
   <div class="dialog-actions">
     <button id="update-close" type="button" data-i18n="dialog.close"></button>
+    <button id="update-settings" type="button" class="hidden" data-i18n="connections.openSettings"></button>
     <button id="update-open" type="button" class="hidden" data-i18n="update.open"></button>
     <button id="update-install" type="button" class="primary hidden" data-i18n="update.install"></button>
   </div>
@@ -404,6 +407,26 @@
   <div class="warnings-head"><strong data-i18n="status.warningsTitle"></strong><button id="warnings-close" type="button" class="small-btn" data-i18n="status.warningsClose"></button></div>
   <p class="settings-note" data-i18n="status.warningsHint"></p>
   <ul id="warnings-list" class="warnings-list"></ul>
+</div>
+
+<!-- F25.5 (0.7.4): what an extension needs, before it is installed. -->
+<dialog id="ext-consent" class="dialog ext-consent" aria-labelledby="ext-consent-title">
+  <h2 id="ext-consent-title"></h2>
+  <p id="ext-consent-about" class="ext-about"></p>
+  <p id="ext-consent-verified" class="ext-verified"></p>
+  <p id="ext-consent-lead"></p>
+  <ul id="ext-consent-needs" class="ext-needs"></ul>
+  <div class="dialog-actions">
+    <button id="ext-consent-cancel" type="button" data-i18n="dialog.cancel"></button>
+    <button id="ext-consent-ok" type="button" class="primary" data-i18n="ext.install"></button>
+  </div>
+</dialog>
+
+<!-- F25.17 (0.7.4): an extension's findings list, drawn by the app in its own style. -->
+<div id="ext-panel" class="warnings-panel ext-panel hidden" role="dialog" aria-labelledby="ext-panel-title">
+  <div class="warnings-head"><strong id="ext-panel-title"></strong><button id="ext-panel-close" type="button" class="small-btn" data-i18n="status.warningsClose"></button></div>
+  <p id="ext-panel-from" class="settings-note"></p>
+  <ul id="ext-findings" class="warnings-list"></ul>
 </div>
 
 <div id="menu-popup" class="popup hidden" role="menu"></div>

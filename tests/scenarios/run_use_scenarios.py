@@ -442,6 +442,7 @@ def use_02(window: MainWindow) -> dict:
     (OUT / "T-USE-02.typ").write_text(st["text"], "utf-8")
     title_bar = window.windowTitle()
     s.log.append(f"     window title after export: {title_bar}")
+    connections_steps(s, window)   # 0.7.4: offline by default; turned on for the update steps
     world_steps(s, window)
     look_steps(s, window)
     print_steps(s, window)
@@ -454,6 +455,7 @@ def use_02(window: MainWindow) -> dict:
     game_system_steps(s, window)
     fix_0610_steps(s, window)
     step3_steps(s, window)
+    extension_steps(s, window)
     return s.summary()
 
 
@@ -1002,6 +1004,51 @@ def step3_steps(s: Scenario, window: MainWindow) -> None:
     s.flush()
     s.check("the footnote is changed in the text (#4)", '#footnote(text: "Written in *1872*.")' in s.state()["text"])
     s.check("it still builds", s.state()["errors"] == [])
+
+
+def connections_steps(s: Scenario, window: MainWindow) -> None:
+    """0.7.4 (0.7.0 step 5, F25.1) steps of T-USE-02: the Game Master finds
+    that Scriptorum is offline, and turns connections on to get updates."""
+    settings = window.bridge.session.app_settings
+    s.check("connections outside the app are blocked by default", settings.get("connections_blocked") is True)
+    s.act("Help ▸ Check for updates…", "window.__scriptorum.updates.check(); true", 1200)
+    s.check("it says connections are blocked and sends nothing",
+            (s.js("document.getElementById('update-text').textContent") or "").startswith("Connections outside the app are blocked")
+            and window.bridge.api.net.requests == [])
+    s.shot("updates-blocked")
+    s.act("Open Settings from the update window", "window.__u.click('#update-settings')", 600)
+    s.check("Settings opens on Application, with the switch on",
+            s.js("document.getElementById('app-connectionsBlocked').checked") is True)
+    s.act("Turn the switch off", "window.__u.click('#app-connectionsBlocked')", 500)
+    s.check("connections are allowed now", settings.get("connections_blocked") is False)
+    s.act("Done", "window.__u.click('#settings-close')")
+
+
+def extension_steps(s: Scenario, window: MainWindow) -> None:
+    """0.7.4 (0.7.0 step 5, F25) steps of T-USE-02: the Game Master installs
+    a small extension, reads what it needs, switches it on and uses it from
+    the Extensions menu; its findings lead to the text."""
+    from tests.test_step5 import FakeKeychain, make_extension, packed
+    window.bridge.api.extensions.keychain = FakeKeychain()
+    file = packed(make_extension(OUT / "extension"), OUT)
+    s.act("Settings ▸ Extensions", "window.__scriptorum.openSettingsWindow('extensions')", 600)
+    s.act("Install extension…", f"window.__scriptorum.shell.installExtensionFile({json.dumps(str(file))}); true", 1200)
+    needs = s.js("[...document.querySelectorAll('#ext-consent-needs li')].map(li => li.textContent)") or []
+    s.check("before installing, it says what the extension needs", "Reads the text of the open adventure" in needs)
+    s.check("and that it is unverified", (s.js("document.getElementById('ext-consent-verified').textContent") or "").startswith("Unverified"))
+    s.shot("extension-consent")
+    s.act("Install", "window.__u.click('#ext-consent-ok')", 1000)
+    s.check("it is listed, switched off", s.js("document.querySelector('[data-extension=\"test.checker\"] input[data-action=on]').checked") is False)
+    s.act("Switch it on", "window.__u.click('[data-extension=\"test.checker\"] input[data-action=on]')", 1200)
+    s.shot("extensions")
+    s.act("Done", "window.__u.click('#settings-close')")
+    s.check("an Extensions menu appears", "Extensions" in (s.js("[...document.querySelectorAll('#menubar .menu-btn')].map(b => b.textContent)") or []))
+    s.act("Extensions ▸ Check headings", "window.__u.menu('Extensions'); window.__u.pick('Check headings')", 3000)
+    s.check("its findings are listed", not s.js("document.getElementById('ext-panel').classList.contains('hidden')")
+            and (s.js("document.querySelectorAll('#ext-findings li').length") or 0) > 0)
+    s.shot("extension-findings")
+    s.act("Close the findings", "window.__u.click('#ext-panel-close')")
+    window.bridge.api.extensions.stop_all()
 
 
 def fix_0610_steps(s: Scenario, window: MainWindow) -> None:

@@ -86,6 +86,16 @@ npm run build:test
 
 `check` type-checks, `build` writes `scriptorum/ui/dist/app.js`, and `build:test` writes `tests/js/inline.cjs` for the escaping test.
 
+## Extensions (F25, from 0.7.4)
+
+An extension is a module of kind `extension` that may hold Python files (never compiled code). `scriptorum/core/extensions.py` checks its manifest before installing (needs, licence, API version, the rule that an extension with a network host can only suggest), checks the project's signature and keeps the author's state, settings and secrets (through `keyring`, or a file only the user can read). `scriptorum/api/extensions.py` is the app's side: it starts each switched-on extension in its own process (`scriptorum/core/exthost.py`, the app's own program with `--scriptorum-extension-host` when installed), answers its calls only as far as its needs go, makes its writes one undo step, and stops it after 30 seconds without an answer. The calls an extension may make are listed in [docs/API.md](API.md) under extensions. The tests' extensions are written in `tests/test_step5.py`.
+
+To sign one of the project's extensions with the same key as updates (it then shows as "from the Scriptorum project"):
+
+```
+python tools/sign_extension.py path/to/extension-folder
+```
+
 ## The documentation website
 
 The website at [lyzio.github.io/Scriptorum](https://lyzio.github.io/Scriptorum/) (design document F24) is built by `.github/workflows/docs.yml` with Zensical, from text that already lives here: the guides from `scriptorum.en/strings/guide-*.json` (the text Help shows), `docs/API.md`, `CHANGELOG.md`, the home page `docs/site/index.md` and the open issues for the Status page. `docs/site/zensical.toml` is the site's configuration and `tools/build_site.py` writes the pages into `build/site/`, which is never committed. Zensical is not one of the app's dependencies; to look at the site on your own machine:

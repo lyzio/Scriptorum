@@ -36,7 +36,12 @@ class ModulesArea:
 
     # --- the module manager (F14) ---------------------------------------------------------------
     def install(self, path: str) -> dict:
-        """Install a module from a .scmod file with every check of 9.7."""
+        """Install a module from a .scmod file with every check of 9.7. An
+        extension is not installed here: the reply says what it needs, and the
+        window asks the author before ``extensions.install`` (F25.5)."""
+        info = self.api.extensions.inspect(path)
+        if info.get("ok") and info.get("extension"):
+            return {"ok": False, "extension": True, "inspect": info}
         try:
             result = modmanager.install(self.session.library, Path(path), self.session.localize)
         except Exception as exc:  # noqa: BLE001 - refused, with the reason in plain words

@@ -90,6 +90,8 @@ def module_list(library: Library, recent_paths: List[str], settings: Optional[Ap
     disabled = library._disabled_keys()
     rows = []
     for module in sorted(library.installed(True), key=lambda m: (m.kind, m.name.lower(), m.id, m.version)):
+        if module.kind == "extension":
+            continue  # F25.10: extensions have their own section, Settings ▸ Extensions
         bundled = is_bundled(module, bundled_dir)
         always = module.id in ALWAYS_ON
         using = in_use(module, library, settings)
@@ -201,6 +203,8 @@ def run_checks(library: Library, module: Module, localize=None) -> None:
     """The checks of 9.7 that need the module in the library: fonts, JSON,
     renderers and compiling. Raises ModuleError with the reason."""
     check_json(module)
+    if module.kind == "extension":
+        return  # F25: an extension holds no fonts or Typst; its own checks ran before
     check_fonts(module)
     check_renderers(library, module)
     problems = compile_problems(library, module)

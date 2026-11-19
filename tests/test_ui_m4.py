@@ -57,7 +57,8 @@ def test_T_UI_19_settings_window_without_adventure(ui):
     Colours, Modules and Adventure; Adventure is greyed out with no adventure."""
     ui.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: ',', ctrlKey: true, bubbles: true})); true")
     ui.wait_until(lambda: ui.js("!document.getElementById('settings').classList.contains('hidden')") is True)
-    assert texts(ui, ".settings-nav button > span") == ["Application", "Colours", "Modules", "Adventure"]
+    # Corrected for 0.7.4: Settings ▸ Extensions (F25.10) sits before Adventure.
+    assert texts(ui, ".settings-nav button > span") == ["Application", "Colours", "Modules", "Extensions", "Adventure"]
     assert ui.js("document.getElementById('sn-adventure').disabled") is True
     assert ui.js("document.getElementById('sn-adventure-name').textContent") == "No adventure open"
     assert ui.js("window.__scriptorum.settingsSection()") == "application"

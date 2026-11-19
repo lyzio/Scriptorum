@@ -48,6 +48,7 @@ class Bridge(QObject):
     selfTestFinished = Signal(str)   # F9: the theme self-test of Help ▸ Check installation
     updateChecked = Signal(str)      # F21 (M6 part C): the result of an update check
     updateInstalled = Signal(str)    # F22 (M6 part C5): the result of Download and install
+    extensionNotice = Signal(str)    # F25 (0.7.4): an extension finished, failed or sent findings
     _buildDone = Signal(object, object, int)
     _suggestDone = Signal(str)
     _selfTestDone = Signal(str)
@@ -95,14 +96,21 @@ class Bridge(QObject):
         self.spelling.start()
         self._spell_watch.start()
         self.closed = False
+        # F25.11 (0.7.4): what running extensions send is handled on this thread.
+        self.api.extensions.listeners.append(self._extension_notice)
+        self._extensions_timer = QTimer(self)
+        self._extensions_timer.setInterval(50)
+        self._extensions_timer.timeout.connect(self.api.extensions.pump)
+        self._extensions_timer.start()
 
     def shutdown(self) -> None:
         """The window is closing: stop every timer and ignore results that
         arrive later from background work, so nothing reaches a page that
         Qt has already deleted."""
         self.closed = True
-        for timer in (self._timer, self._snapshots, self._spell_watch):
+        for timer in (self._timer, self._snapshots, self._spell_watch, self._extensions_timer):
             timer.stop()
+        self.api.extensions.stop_all()   # F25.11: no extension outlives the window
 
     # --- the API's state, as the tests and the window know it ------------------------
     @property
@@ -250,6 +258,7 @@ class Bridge(QObject):
     def uiReady(self) -> str:
         self.ui_ready = True
         reply = self.api.app.ui_ready()
+        self.start_extensions()
         if self.on_ui_ready:
             self.on_ui_ready()
         return _json(reply)
@@ -373,6 +382,15 @@ class Bridge(QObject):
         return _json(self.api.app.answer_update_prompt(weekly))
 
     @Slot(result=str)
+    def offlineNotice(self) -> str:
+        """F25.2: the one-time offline message, shown where the update question was."""
+        return _json(self.api.app.offline_notice(self.ask_updates_at_start))
+
+    @Slot(result=str)
+    def offlineNoticeSeen(self) -> str:
+        return _json(self.api.app.offline_notice_seen())
+
+    @Slot(result=str)
     def openDownloadPage(self) -> str:
         """The download page from the last update file opens in the computer's
         own web browser; Scriptorum downloads nothing (F21.3)."""
@@ -445,7 +463,73 @@ class Bridge(QObject):
 
     @Slot(str, result=str)
     def installModulePath(self, path: str) -> str:
-        return _json(self.api.modules.install(path))
+        reply = self.api.modules.install(path)
+        if reply.get("extension"):
+            reply["path"] = path   # F25.5: the window asks first, then installs this file
+        return _json(reply)
+
+    # --- extensions (F25, 0.7.4) ----------------------------------------------------------------
+    def _extension_notice(self, notice: dict) -> None:
+        if not self.closed:
+            self.extensionNotice.emit(_json(notice))
+
+    def start_extensions(self) -> None:
+        """F25.10: the extensions the author switched on start with the window."""
+        for info in self.api.extensions.list()["extensions"]:
+            if info["on"]:
+                self.api.extensions.set_on(info["id"], True)
+
+    @Slot(result=str)
+    def extensionList(self) -> str:
+        return _json(self.api.extensions.list())
+
+    @Slot(result=str)
+    def extensionContributions(self) -> str:
+        return _json(self.api.extensions.contributions())
+
+    @Slot(result=str)
+    def extensionFindings(self) -> str:
+        return _json(self.api.extensions.findings())
+
+    @Slot(result=str)
+    def inspectExtensionDialog(self) -> str:
+        """Settings ▸ Extensions ▸ Install extension…: choose a .scmod file."""
+        t = self.api.app.text
+        path, _ = QFileDialog.getOpenFileName(self.window, t("ext.installTitle"), "", t("dialog.scmodFilter"))
+        if not path:
+            return _json({"ok": False, "cancelled": True})
+        return self.inspectExtension(path)
+
+    @Slot(str, result=str)
+    def inspectExtension(self, path: str) -> str:
+        reply = self.api.extensions.inspect(path)
+        reply["path"] = path
+        return _json(reply)
+
+    @Slot(str, bool, result=str)
+    def installExtension(self, path: str, agreed: bool) -> str:
+        return _json(self.api.extensions.install(path, agreed))
+
+    @Slot(str, bool, result=str)
+    def setExtensionOn(self, ext_id: str, on: bool) -> str:
+        return _json(self.api.extensions.set_on(ext_id, on))
+
+    @Slot(str, str, str, result=str)
+    def setExtensionSetting(self, ext_id: str, key: str, value: str) -> str:
+        return _json(self.api.extensions.set_setting(ext_id, key, value))
+
+    @Slot(str, result=str)
+    def removeExtension(self, ext_id: str) -> str:
+        return _json(self.api.extensions.remove(ext_id))
+
+    @Slot(str, str, str, result=str)
+    def runExtension(self, ext_id: str, command: str, context: str) -> str:
+        """The author clicked an extension's item; the answer arrives as ``extensionNotice``."""
+        try:
+            data = json.loads(context or "{}")
+        except ValueError:
+            data = {}
+        return _json(self.api.extensions.run(ext_id, command, data if isinstance(data, dict) else {}))
 
     @Slot(str, str, bool, result=str)
     def setModuleDisabled(self, module_id: str, version: str, disabled: bool) -> str:

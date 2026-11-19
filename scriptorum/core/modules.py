@@ -6,7 +6,8 @@ version: ``<library>/<id>/<version>/``. Several versions can sit side by side;
 an adventure always uses the exact version it pins.
 
 Modules contain only data and Typst (3.1). Installation refuses any other
-file type (9.1, 9.7).
+file type (9.1, 9.7). From 0.7.4 the one exception is an extension module
+(F25), which may hold Python files; compiled code is refused in every kind.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ KINDS = {
     "adventure-language",
     "interface-language",
     "palette",
+    "extension",   # F25 (0.7.4): adds functions with its own Python code
 }
 CONTENT_KINDS = {"game-system", "element-kit", "theme", "adventure-language"}
 
@@ -235,12 +237,17 @@ def validate_folder(src: Path) -> dict:
         if not RANGE_RE.match(str(req["version"])):
             raise ModuleError("error.module.badRequires", id=manifest["id"])
 
+    # F25.4 (0.7.4): Python only in an extension; compiled code in no kind.
+    from scriptorum.core.extensions import KIND as EXTENSION, check_files
+    check_files(src, manifest["kind"])
     for file in src.rglob("*"):
         if file.is_dir():
             continue
         if file.is_symlink():
             raise ModuleError("error.module.forbiddenFile", file=str(file.relative_to(src)))
         if file.suffix.lower() in ALLOWED_SUFFIXES:
+            continue
+        if manifest["kind"] == EXTENSION and file.suffix.lower() == ".py":
             continue
         # F16: a palette may carry its own window stylesheet, palette.css. It
         # changes only the window, and nothing in it may reach the internet.
@@ -391,6 +398,10 @@ class Library:
         return [m for m in self.installed() if m.kind == kind]
 
     def requirement_met(self, req: dict, include_disabled: bool = False) -> bool:
+        if req.get("id") == "api":
+            # F25.9: an extension names the internal API version it was written for.
+            from scriptorum.core.extensions import api_matches
+            return api_matches(str(req.get("version", "")))
         return any(
             m.id == req["id"] and version_matches(m.version, str(req["version"]))
             for m in self.installed(include_disabled)

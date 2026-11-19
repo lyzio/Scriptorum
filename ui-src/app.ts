@@ -66,6 +66,10 @@ const state = {
   // M3: history positions at which a codex or map change was made, so Undo
   // undoes it in the core (F4.12).
   worldMarks: [] as number[],
+  // F25.12 (0.7.4): undo steps an extension made, named after it.
+  extUndo: [] as { mark: number; name: string }[],
+  // F25.17: the switched-on extensions' menu items, block actions and panels.
+  extensions: [] as any[],
   handoutsOnly: false,
   adventureId: null as string | null,
   navTab: "outline" as "outline" | "codex" | "handouts",
@@ -162,8 +166,10 @@ async function undo(): Promise<void> {
   await flush();
   const mark = state.worldMarks[state.worldMarks.length - 1];
   if (mark !== undefined && mark >= state.historyPos) {
-    // The last change was in the codex, a map or the chart.
+    // The last change was in the codex, a map or the chart, or an extension's (F25.12).
     state.worldMarks.pop();
+    const named = state.extUndo[state.extUndo.length - 1];
+    if (named && named.mark === mark) state.extUndo.pop();
     const system = [state.info?.gameSystem?.id, state.info?.theme?.id].join(" ");
     const reply = await call("worldUndo");
     if (reply?.ok) {
@@ -620,7 +626,7 @@ function menuModel(): { key: string; items: MenuItem[] }[] {
       { label: t("menu.quit"), action: () => call("quit"), shortcut: "Ctrl+Q" },
     ] },
     { key: "menu.edit", items: [
-      { label: t("menu.undo"), action: () => undo(), shortcut: "Ctrl+Z", disabled: !has || ro },
+      { label: undoLabel(), action: () => undo(), shortcut: "Ctrl+Z", disabled: !has || ro },
       { label: t("menu.redo"), action: () => redo(), shortcut: "Ctrl+Shift+Z", disabled: !has || ro },
       { label: t("menu.find"), action: () => openFind(), shortcut: "Ctrl+F", disabled: !has },
       { label: t("menu.upgrade"), action: () => offerUpgrade(true), disabled: !has || ro },
@@ -651,6 +657,8 @@ function menuModel(): { key: string; items: MenuItem[] }[] {
       { label: t("menu.style"), disabled: !has || ro, children:
         styleKinds().map((kind) => ({ label: kindLabel(kind), action: () => setStyle(kind) })) },
     ] },
+    // F25.17 (0.7.4): only while a switched-on extension has a menu item.
+    ...(extensionMenu().length ? [{ key: "menu.extensions", items: extensionMenu() }] : []),
     { key: "menu.help", items: [
       { label: t("menu.example"), action: () => openExample() },
       // F9 (M5): the start-up checks on demand, with the theme self-test.
@@ -667,6 +675,84 @@ function menuModel(): { key: string; items: MenuItem[] }[] {
       { label: t("menu.about"), action: () => openAbout() },
     ] },
   ];
+}
+
+/** F25.12: "Undo Heading tidy: Raise headings" when the last step is an extension's. */
+function undoLabel(): string {
+  const mark = state.worldMarks[state.worldMarks.length - 1];
+  const named = state.extUndo[state.extUndo.length - 1];
+  if (named && mark !== undefined && named.mark === mark && mark >= state.historyPos) return t("menu.undoNamed", { name: named.name });
+  return t("menu.undo");
+}
+
+/** F25.17: the Extensions menu, one group per switched-on extension. */
+function extensionMenu(): MenuItem[] {
+  const has = !!state.info?.hasDocument;
+  const items: MenuItem[] = [];
+  for (const e of state.extensions) {
+    if (!e.menu?.length) continue;
+    items.push({ label: e.name, heading: true });
+    for (const m of e.menu) items.push({ label: m.label, action: () => runExtension(e.id, m.id, {}), disabled: !has });
+  }
+  return items;
+}
+
+/** F25.12: the author asked an extension to do something. Waiting edits go
+ * to the core first, so the extension sees the text as it is on screen. */
+async function runExtension(id: string, command: string, context: any): Promise<void> {
+  await flush();
+  const reply = await call("runExtension", id, command, JSON.stringify({ chapter: state.chapterIndex, line: state.line, ...context }));
+  if (reply?.ok === false) showMessage(reply.error ?? "");
+}
+
+async function loadExtensions(): Promise<void> {
+  state.extensions = (await call("extensionContributions")) ?? [];
+  buildMenus();
+}
+
+/** F25.11 to F25.17: what an extension sent back. */
+async function onExtensionNotice(n: any): Promise<void> {
+  if (n.kind === "findings") {
+    showFindings(n);
+  } else if (n.kind === "done" || n.kind === "failed") {
+    if (n.wrote) {
+      await reloadAfterWorld();
+      state.worldMarks.push(state.historyPos);
+      state.extUndo.push({ mark: state.historyPos, name: n.undoName });
+      buildMenus();
+    }
+    if (n.kind === "failed" || !n.ok) showMessage(n.message);
+    else if (n.wrote) flashStatus(t("ext.changed", { name: n.name, label: n.label }) + (n.message ? " " + n.message : ""));
+    else flashStatus(n.message || t("ext.done", { name: n.name, label: n.label }));
+  } else if (n.kind === "switchedOff") {
+    showMessage(n.message);
+    await loadExtensions();
+  }
+  document.body.dataset.extNotices = String(Number(document.body.dataset.extNotices || 0) + 1);
+}
+
+/** F25.17: a findings list, drawn by the app; a click goes to the place. */
+function showFindings(n: any): void {
+  $("ext-panel-title").textContent = n.title || n.name;
+  $("ext-panel-from").textContent = t("ext.findingsFrom", { name: n.name, count: n.items.length });
+  const list = $("ext-findings");
+  list.textContent = "";
+  if (!n.items.length) list.append(Object.assign(document.createElement("li"), { textContent: t("ext.findingsNone") }));
+  for (const item of n.items) {
+    const li = document.createElement("li");
+    li.textContent = item.text;
+    if (typeof item.line === "number") {
+      li.classList.add("goes");
+      li.addEventListener("click", async () => {
+        const chapter = typeof item.chapter === "number" ? item.chapter : state.chapterIndex;
+        if (chapter !== state.chapterIndex && chapter < (state.info?.chapters ?? []).length) await loadChapter(chapter, true);
+        if (state.mode === "source") source.goToLine(item.line);
+        else visual.scrollToLine(item.line);
+      });
+    }
+    list.append(li);
+  }
+  $("ext-panel").classList.remove("hidden");
 }
 
 /** The list holding the cursor, if any (F4, issue #5). */
@@ -1369,6 +1455,13 @@ function openContextMenu(event: MouseEvent, place: Place): void {
       items.push({ label: t("editor.convertTo"), heading: true });
       for (const kind of convert) items.push({ label: kindLabel(kind), action: () => visual.convert(place, kind) });
     }
+    // F25.17 (0.7.4): the switched-on extensions' actions on this kind of block.
+    const target = place.list.blocks[place.index];
+    const kind = target?.type === "element" ? target.kind : target?.type;
+    const actions = state.extensions.flatMap((e: any) => (e.blockActions ?? [])
+      .filter((a: any) => !a.kinds?.length || a.kinds.includes(kind))
+      .map((a: any) => ({ label: `${e.name}: ${a.label}`, action: () => runExtension(e.id, a.id, { block: { kind, path: visual.pathOf(place) } }) })));
+    if (actions.length) items.push({ label: t("ext.blockActions"), heading: true }, ...actions);
     items.push({ label: t("editor.insertAfter"), heading: true });
     items.push(...insertItems(visual.kindsFor(place.list, place.chain, null).filter((k) =>
       place.chain.length === 0 || k !== "heading"), (kind) => insert(kind, place)));
@@ -2494,6 +2587,7 @@ async function checkForUpdates(): Promise<void> {
   $("update-open").classList.add("hidden");
   $("update-install").classList.add("hidden");
   $("update-install-text").classList.add("hidden");
+  $("update-settings").classList.add("hidden");
   $("update-address").textContent = "";
   if (!dialog.open) dialog.showModal();
   updateWanted = true;
@@ -2512,6 +2606,7 @@ async function onUpdateChecked(r: any): Promise<void> {
     invalid: t("update.invalid"),
     unsigned: t("update.unsigned"),
     "no-key": t("update.noKey"),
+    blocked: t("update.blocked"),
   };
   const newer = r.state === "newer";
   let text = newer
@@ -2525,6 +2620,8 @@ async function onUpdateChecked(r: any): Promise<void> {
   $("update-open").classList.toggle("hidden", !(newer && r.download));
   $("update-open").classList.toggle("primary", !(newer && r.installable));
   $("update-install").classList.toggle("hidden", !(newer && r.installable));
+  // F25.1: connections are blocked; nothing was sent. A button leads to the setting.
+  $("update-settings").classList.toggle("hidden", r.state !== "blocked");
   $<HTMLButtonElement>("update-install").disabled = false;
   $("update-install-text").classList.add("hidden");
   // F22: the window shows which address it used.
@@ -2556,6 +2653,7 @@ async function installUpdate(): Promise<void> {
 
 function onUpdateInstalled(r: any): void {
   const reasons: Record<string, string> = {
+    blocked: t("update.blocked"),
     unreachable: t("update.installUnreachable"),
     runtime: t("update.needsInstaller"),
   };
@@ -2587,10 +2685,12 @@ async function goBack(): Promise<void> {
 /** F21.4: at first start Scriptorum asks once, with the answer off by default;
  * then the weekly check runs only if the author turned it on. */
 async function offerUpdateQuestion(): Promise<void> {
-  const reply = await call("updatePrompt");
-  if (reply?.ask) {
-    const answer = await askChoice(t("update.askText"), t("update.askYes"), "", t("update.askNo"));
-    await call("answerUpdatePrompt", answer === "yes");
+  // F25.2 (0.7.4): the question is no longer asked; a message is shown once instead.
+  const notice = await call("offlineNotice");
+  if (notice?.show) {
+    const answer = await askChoice(t("connections.offlineNotice"), t("connections.openSettings"), "", t("dialog.ok"));
+    await call("offlineNoticeSeen");
+    if (answer === "yes") await openSettingsWindow("application");
   }
   await call("weeklyUpdateCheck");
 }
@@ -2833,6 +2933,7 @@ async function boot(): Promise<void> {
     adventureName: () => (state.info?.hasDocument ? state.info.title : null),
     addFont: () => addFont(),
     onStartMode: () => undefined,
+    extensionsChanged: () => loadExtensions(),
   });
   setChipLabeler((kind, args) => {
     if (kind === "footnote") {
@@ -3009,6 +3110,13 @@ async function boot(): Promise<void> {
   on("suggestions", onSuggestions);
   on("selfTestFinished", onSelfTest);
   on("updateChecked", onUpdateChecked);
+  // F25 (0.7.4): extensions.
+  on("extensionNotice", (n: any) => onExtensionNotice(n));
+  $("ext-panel-close").addEventListener("click", () => $("ext-panel").classList.add("hidden"));
+  $("update-settings").addEventListener("click", () => {
+    $<HTMLDialogElement>("update-dialog").close();
+    openSettingsWindow("application");
+  });
   $("update-close").addEventListener("click", () => $<HTMLDialogElement>("update-dialog").close());
   $("update-open").addEventListener("click", () => call("openDownloadPage"));
   $("update-install").addEventListener("click", () => installUpdate());
@@ -3025,6 +3133,7 @@ async function boot(): Promise<void> {
   await refresh();
   state.ready = true;
   await call("uiReady");
+  await loadExtensions();   // F25.10: the switched-on extensions' items
   await showStartupReport();
   await offerRecovery();
   await loadVersionInfo();
@@ -3033,6 +3142,8 @@ async function boot(): Promise<void> {
 
 // Hooks the automated interface tests use (tests/test_ui_smoke.py).
 (window as any).__scriptorum = {
+  // F25 (0.7.4): the extensions' items, for the tests.
+  extensions: { run: runExtension, load: loadExtensions, undoLabel, list: () => state.extensions },
   state: () => ({
     ready: state.ready,
     mode: state.mode,

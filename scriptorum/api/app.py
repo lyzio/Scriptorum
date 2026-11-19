@@ -217,6 +217,10 @@ class AppArea:
         to a few seconds: the bridge runs it off the window's thread."""
         url = self.update_address()
         settings = self.session.app_settings
+        if self.connections_blocked():
+            # F25.1: nothing is sent; the window says why, with a way to the setting.
+            return {"state": "blocked", "auto": auto, "installable": False, "current": __version__,
+                    "address": "", "entered": False}
         result = updates.check(__version__, url, self.api.net.reader_for(net.UPDATE_FILE),
                                key=self.update_key, have=self.update_runtime)
         if result["state"] not in (updates.NO_ADDRESS, updates.NOT_HTTPS):
@@ -242,6 +246,8 @@ class AppArea:
         pack, version = self.update_pack, self.update_version
         if not pack:
             return {"ok": False}
+        if self.connections_blocked():
+            return {"ok": False, "reason": "blocked"}   # F25.1
         try:
             installed = updates.install(pack, self.versions, self.api.net.reader_for(net.UPDATE_PACK),
                                         key=self.update_key, have=self.update_runtime,
@@ -300,11 +306,27 @@ class AppArea:
 
     def weekly_check_due(self) -> bool:
         """F21.4: only when the author turned on Check once a week and a week passed."""
-        return updates.weekly_due(self.session.app_settings) and updates.address_set(self.update_address())
+        return (not self.connections_blocked() and updates.weekly_due(self.session.app_settings)
+                and updates.address_set(self.update_address()))
 
     def update_prompt(self, ask_at_start: bool) -> dict:
-        """F21.4: at first start Scriptorum asks once whether to check weekly."""
-        return {"ask": ask_at_start and not bool(self.session.app_settings.get("update_asked"))}
+        """F21.4 until 0.7.3: at first start Scriptorum asked once whether to
+        check weekly. From 0.7.4 (F25.2) the question is no longer asked; the
+        one-time offline message (``offline_notice``) takes its place."""
+        return {"ask": False}
+
+    # --- Block all connections outside the app (F25.1, F25.2; 0.7.4) ------------------
+    def connections_blocked(self) -> bool:
+        return bool(self.session.app_settings.get("connections_blocked"))
+
+    def offline_notice(self, show_at_start: bool) -> dict:
+        """F25.2: the message shown once, on a new install and after updating
+        from an earlier version alike."""
+        return {"show": show_at_start and not bool(self.session.app_settings.get("offline_notice_shown"))}
+
+    def offline_notice_seen(self) -> dict:
+        self.session.app_settings.update({"offline_notice_shown": True})
+        return {"ok": True}
 
     def answer_update_prompt(self, weekly: bool) -> dict:
         self.session.app_settings.update({"update_asked": True, "update_weekly": bool(weekly)})

@@ -25,7 +25,7 @@ from scriptorum.api.errors import ApiError
 from scriptorum.api.events import EVENTS
 from scriptorum.api.workspace import API_VERSION, Api
 
-AREAS = ("app", "adventure", "codex", "build", "modules")
+AREAS = ("app", "adventure", "codex", "build", "modules", "extensions")
 
 __all__ = ["API_VERSION", "AREAS", "Api", "ApiError", "EVENTS", "surface"]
 
@@ -35,10 +35,11 @@ def _area_classes() -> Dict[str, type]:
     from scriptorum.api.app import AppArea
     from scriptorum.api.build import BuildArea
     from scriptorum.api.codex import CodexArea
+    from scriptorum.api.extensions import ExtensionsArea
     from scriptorum.api.modules import ModulesArea
 
     return {"app": AppArea, "adventure": AdventureArea, "codex": CodexArea, "build": BuildArea,
-            "modules": ModulesArea}
+            "modules": ModulesArea, "extensions": ExtensionsArea}
 
 
 def surface() -> dict:

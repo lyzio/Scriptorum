@@ -234,6 +234,8 @@ def read_pins(src: Path) -> dict:
     needed = list(REQUIRED_PINS)
     if (src / "scriptorum" / "core" / "signing.py").is_file():
         needed.append("cryptography")
+    if (src / "scriptorum" / "core" / "extensions.py").is_file():
+        needed.append("keyring")   # F25.18 (0.7.4): extensions' secrets in the keychain
     missing = [name for name in needed if name not in pins]
     if missing:
         stop("pyproject.toml does not pin " + ", ".join(missing) + " with ==; the kit builds only pinned versions (D4)")

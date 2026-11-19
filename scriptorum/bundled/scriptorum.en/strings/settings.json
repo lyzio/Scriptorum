@@ -157,5 +157,9 @@
   "version": "Version",
   "gameSystemVersion": "Version of the game system",
   "themeVersion": "Version of the theme",
-  "themeLocked": "{name} — {reason}"
+  "themeLocked": "{name} — {reason}",
+  "section.extensions": "Extensions",
+  "app.connections": "Connections",
+  "app.blockConnections": "Block all connections outside the app",
+  "app.blockConnectionsNote": "While this is on, Scriptorum sends nothing to the internet: no update check, no update download, and no extension can reach the network. Turn it off to look for updates, or to let switched-on extensions reach the addresses they declare."
 }
