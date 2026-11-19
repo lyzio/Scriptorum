@@ -1,48 +1,47 @@
-# Scriptorum 0.7.6 — Test Report
+# Scriptorum 0.7.7 — Test Report
 
 | | |
 |---|---|
-| Version | 0.7.6, on `build/0.7.0` after step 6 (the Latest release link on the documentation website, F24; issue #34) |
-| Platform | GitHub Actions, ubuntu-24.04, Python 3.13, headless (the full suite); Linux (x86-64), headless, in the build session (the new and affected tests, with Zensical 0.1.2) |
+| Version | 0.7.7, on `build/0.7.0` (issues #30, #33, #31) |
+| Platform | GitHub Actions, ubuntu-24.04, Python 3.13, headless (the full suite); Linux (x86-64), headless, in the build session (the full suite with Zensical, and the scenarios) |
 | Pinned versions | PySide6 6.8.3 (Qt 6.8 LTS) · typst 0.15.0 · spylls 0.1.7 · cryptography 48.0.1 · keyring 25.7.0 |
 | Date | 19 November 2026 |
-| Result | **441 passed**, 0 failed, 1 skipped (T-DOC-05, which needs Zensical): GitHub's Tests run for commit d32576d. In the build session T-DOC-05 also passed, with Zensical |
+| Result | **453 passed**, 0 failed, 1 skipped (T-DOC-05, which needs Zensical): GitHub's Tests run 44515406725 for commit 51c26fa |
 
-## This step
+## This build
 
-The website's sidebar ends with Latest release, after Status, linking to https://github.com/lyzio/Scriptorum/releases/latest. The design document was read as its changes since revision 439 (there were none), plus F24 and section 2 in full.
+A full-width section never covers what stands in a column (#30), pasted "She knows" lines become Information in the person card (#33), and the Box is the only frame for the elements in it (#31). The design document was read as its changes since revision 440 (none), with F7.4, 11.10 and F4's new paragraph in full.
 
 ## Results
 
 | ID | Result | Notes |
 |---|---|---|
-| Every test of M1 to 0.7.5 | Pass | GitHub's run 44482017527 |
-| T-DOC-07 | Pass | New. Read from the generated configuration: the last sidebar entry, at the top level after Status, is Latest release with the releases/latest address; it is the only entry that is not a page; the pages written are exactly the sidebar's pages; no guide text in Help names the address |
-| T-DOC-05 | Pass | Ran in the build session with Zensical 0.1.2 (strict build, no warnings); it now also checks that the built site links to releases/latest and makes no page for it. Skipped on GitHub's Tests run, as before |
-| T-DOC-01 to 04 | Pass | Unchanged (T-DOC-01 needed no correction, since the link is not a page) |
-| T-REL-11, T-REL-14 | Pass | They read the changelog section of the app's version, so the in-progress section is now headed 0.7.6 |
-| T-DOC-06 | Pending | After the merge into main and switching on GitHub Pages: also check that Latest release opens the newest release |
-| T-EXT-16 | Pending | On your computer (keychain), as in 0.7.4 |
-| T-BUILD-03 | Pending | Compare the checksum below on your machine |
-| T-REL-02 | Pending | Network check on your machine |
-| T-USE-01, T-USE-02 | Not run | Nothing this step touches is part of the app or used in the scenarios (the build procedure allows skipping them for such a build) |
+| Every test of M1 to 0.7.6 | Pass | GitHub's run; in the build session T-LOOK-03 failed once before the fix below |
+| T-BUILD-34 | Pass | New, every theme: a map in a column, then a full-width section holding a map, then text, then a tall framed Box beside a full-width map; no text of the column element lies within the full-width section's height. Without the fix the test fails in Vaesen and Plain. A second test checks that the core sets every unbreakable element as one measured box |
+| T-LOOK-14 | Pass | New, every theme: in a Box the parts keep their labels (PUBLIC, SECRET, HINT, READ ALOUD, CHECK), sit in the order written and closer together than the framed elements outside; the person card keeps its frame; the accessible PDF is made with the parts' text. A second test checks the templates of every theme |
+| T-UI-59 | Pass | New, window, two tests: "She knows (public)", "Hon vet (hemlig)", "Knows", "He knows (secret)", "Han vet (publik)", "Vet" and a list marker; Mood fills its field; "Remember: …" and "Vetenskap: …" stay; one undo brings every line back |
+| T-LOOK-07 | Pending | Look at a Box with Information inside, on screen and on paper |
+| T-DOC-06, T-EXT-16, T-BUILD-03, T-REL-02 | Pending | As in 0.7.6 |
+| T-USE-01, T-USE-02 | Pass | 157 checks, all passed. T-USE-01 now checks that the two "She knows" lines became public and secret Information in Lovisa Berg's card (#33) instead of noting them as friction. The old note about adding maps through a file dialog (M5) is unchanged |
 
 ## Looked at
 
-The built site's Status page at 1440 × 900: Latest release is the last sidebar entry, under Status, in the sidebar's own style. Zensical's footer on the Status page also offers "Next: Latest release", since the footer follows the sidebar; it opens the same address.
+Pages of the #30 case in all four themes before and after (the column map now moves whole to the next page, with its label); a Box holding every kind in all four themes (frameless parts, lines between them, the secret's fill, the person card framed); the window after converting the pasted person.
 
 ## Found while building
 
-Nothing.
+- **The Box's frame was too short** when its parts had lines between them: while the Box measures its text, a part cannot see the parts before it. Every part now keeps a line's room above it, drawn only after an earlier part.
+- **Only the first lines appeared in a long Box**: "inside a Box" as a state needed more layout passes than Typst allows. It is now a style, which holds at once.
+- **A Box's bold labels stopped printing in capitals** (T-LOOK-03): the Box's mark hid the start of its text from the label rule. The Box now makes its labels before marking its text.
 
 ## Corrections to existing tests
 
-None. T-DOC-05 gained two checks for T-DOC-07.
+None.
 
 ## Tests added
 
-T-DOC-07 (`tests/test_step4.py`), in the Test Plan before building.
+T-BUILD-34 (2), T-LOOK-14 (2), T-UI-59 (2) in `tests/test_step7.py`, in the Test Plan before building.
 
 ## Sample checksum (Linux)
 
-`m1-basic.pdf`: `8d2c3db82974b610e7a745d1b21bc6ed2cf4fac4e32d379bb28c7c351f7c8d69` (unchanged since 0.6.4; nothing in this step prints).
+`m1-basic.pdf`: `8d2c3db82974b610e7a745d1b21bc6ed2cf4fac4e32d379bb28c7c351f7c8d69` (unchanged since 0.6.4: the elements look the same as before).
