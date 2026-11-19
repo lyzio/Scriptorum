@@ -121,7 +121,8 @@ def test_T_UI_26_check_installation(ui):
     ui.wait_until(lambda: ui.js("Number(document.body.dataset.selfTestDone || 0)") >= 1, 120)
     assert ui.js("document.getElementById('check-summary').textContent") == "Theme self-test: every theme builds the test adventure."
     # Corrected for 0.7.0 (F8, issue #23): four themes with two game systems each.
-    assert ui.js("document.querySelectorAll('#check-themes li.passed').length") == 8
+    # Corrected for 0.7.8 (F8): eight themes with two game systems each.
+    assert ui.js("document.querySelectorAll('#check-themes li.passed').length") == 16
     assert ui.window.interceptor.blocked == []
     ui.js("document.getElementById('check-close').click(); true")
 

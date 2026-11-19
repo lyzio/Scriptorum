@@ -119,7 +119,8 @@ def test_T_UI_03_new_adventure_dialog(ui):
     # offered first and preselected (T-MOD-13).
     # Corrected for 0.7.0 (F8, issue #23): every theme with every game system,
     # so the Vaesen theme is offered for Plain too.
-    assert systems == ["Plain", "Vaesen"] and themes == ["Plain", "Call of Cthulhu", "Legends and Lattes", "Vaesen"]
+    assert systems == ["Plain", "Vaesen"] and themes == ["Plain", "Call of Cthulhu", "Legends and Lattes", "Rogue Trader", "The One Ring",
+                                                    "Vaesen", "WH40KRP", "WHFRP"]  # corrected for 0.7.8 (F8)
     assert ui.js("document.getElementById('new-system').selectedOptions[0].textContent") == "Plain"
     assert ui.js("document.getElementById('new-theme').selectedOptions[0].textContent") == "Plain"
     # The author can still pick any other game system: the tests that follow
@@ -127,7 +128,8 @@ def test_T_UI_03_new_adventure_dialog(ui):
     ui.js("(() => { const s = document.getElementById('new-system'); s.value = '1'; s.onchange(); })()")
     themes = ui.js("[...document.querySelectorAll('#new-theme option')].map(o => o.textContent)")
     # M4 (F8): the game system's own theme first, then the general themes.
-    assert themes == ["Vaesen", "Plain", "Call of Cthulhu", "Legends and Lattes"]
+    # Corrected for 0.7.8 (F8): the four general themes of 0.7.8 follow.
+    assert themes == ["Vaesen", "Plain", "Call of Cthulhu", "Legends and Lattes", "Rogue Trader", "The One Ring", "WH40KRP", "WHFRP"]
     ui.js("document.getElementById('new-create').click()")  # no title yet
     assert ui.js("document.getElementById('new-error').textContent") == "Please give the adventure a title."
     ui.type_input("#new-title", "Skuggan över Ödmården")

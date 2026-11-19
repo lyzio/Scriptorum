@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import io
 import json
+import struct
 from pathlib import Path
 
 import pytest
 from pypdf import PdfReader
 
-from scriptorum.core.fonts import check_font
+from scriptorum.core.fonts import check_font, read_names
+from scriptorum.core.preflight import font_chars
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLED = ROOT / "scriptorum" / "bundled"
@@ -50,21 +52,22 @@ def test_T_LOOK_15_manifest_licence_and_names(theme):
 def test_T_LOOK_15_fonts_open_static_with_licence(theme):
     """T-LOOK-15: every font passes the font guard (F11), is a static weight
     (no variable-font table), has å, ä and ö, and has its licence file."""
-    from fontTools.ttLib import TTFont
-
+    # The app's own readers, as GitHub's test machine has no fontTools.
     fonts = BUNDLED / theme / "fonts"
     families = set()
     for file in sorted(fonts.iterdir()):
         if file.suffix.lower() not in (".ttf", ".otf"):
             continue
-        result = check_font(file.read_bytes())
+        data = file.read_bytes()
+        result = check_font(data)
         assert result.ok, file.name
-        font = TTFont(file)
-        assert "fvar" not in font, f"{file.name} is a variable font"
-        cmap = font.getBestCmap()
-        assert all(ord(c) in cmap for c in "åäöÅÄÖ"), file.name
-        family = font["name"].getDebugName(16) or font["name"].getDebugName(1)
-        families.add(family)
+        count = struct.unpack(">H", data[4:6])[0]
+        tables = {data[12 + 16 * i:16 + 16 * i] for i in range(count)}
+        assert b"fvar" not in tables, f"{file.name} is a variable font"
+        chars = font_chars(data)
+        assert all(ord(c) in chars for c in "åäöÅÄÖ"), file.name
+        names = read_names(data)
+        families.add(names.get(16) or names.get(1))
         stem = file.name.split("-")[0]
         assert (fonts / f"{stem}-OFL.txt").is_file(), f"no licence file beside {file.name}"
     assert families == FAMILIES[theme]
