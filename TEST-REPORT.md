@@ -10,7 +10,7 @@
 
 ## This build
 
-Four more general themes, WHFRP, The One Ring, WH40KRP and Rogue Trader, and two style hooks for themes (page-background and stat-row). The design document was read in full in the build chat at revision 443; this build wrote revisions 444 to 446.
+Four more general themes, WHFRP, The One Ring, WH40KRP and Rogue Trader, and two style hooks for themes (page-background and stat-row). The design document was known in full up to revision 443 (Build state); it had no changes since, and this build read F8, sections 7, 8, 9.8, 10 and 12 in full and wrote revisions 444 to 446.
 
 ## Results
 
