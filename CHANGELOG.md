@@ -2,7 +2,14 @@
 
 What each version of Scriptorum brings, newest first. The section of a version is also the description of its [GitHub release](https://github.com/lyzio/Scriptorum/releases).
 
-## 0.7.4 — in progress (built in six steps on build/0.7.0, released once; each step has its own number)
+## 0.7.5 — in progress (built in six steps on build/0.7.0, released once; each step has its own number)
+
+### 0.7.5, step 6: suggestions, pictures, the Extensions tab and How to write an extension (issue #27)
+
+- **The Extensions tab.** The bottom of the left pane has a second tab, Extensions, beside In this scene, while an extension is switched on. Each switched-on extension has its own section there, the most recently busy one open, with what it found, its pictures, its open suggestions and its settings. The list of findings no longer floats over the preview.
+- **Suggestions.** An extension can suggest a new text for a whole block, or a new block after one. The suggestion shows under the block in the editor, with the changed words marked, and nothing changes until you accept it; Accept is one undo step. A suggestion for a block you have edited since cannot be accepted any more.
+- **Pictures.** An extension can offer a picture. Use puts it in the adventure after the block it was made for, with its description for screen readers; for a person card, Set as portrait. Regenerate asks again; Cancel throws it away.
+- **How to write an extension**, the third author guide, is in the Help menu and on the website, with a small worked example.
 
 ### 0.7.4, step 5: extension modules and Block all connections (issue #27)
 

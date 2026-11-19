@@ -45,10 +45,11 @@ REPOSITORY = "https://github.com/lyzio/Scriptorum"
 GUIDES = {
     "guide-theme": "guides/how-to-write-a-theme.md",
     "guide-game-system": "guides/how-to-write-a-game-system.md",
+    "guide-extension": "guides/how-to-write-an-extension.md",   # F25.19 (0.7.5)
 }
 
 # Code-block language by the file name a guide gives a block ("```file: x").
-LANGUAGES = {".json": "json", ".css": "css", ".svg": "xml", ".md": "markdown", ".toml": "toml"}
+LANGUAGES = {".py": "python", ".json": "json", ".css": "css", ".svg": "xml", ".md": "markdown", ".toml": "toml"}
 
 # F24.4: the three lists of the Status page, by the labels already in use.
 # An issue labelled "to test" is waiting for the project manager whatever

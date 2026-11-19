@@ -9,8 +9,11 @@ against what the extension declared it needs (F25.13):
     adventure.info, adventure.chapter        needs "reads": ["text"]
     codex.codex, codex.entry                 needs "reads": ["codex"]
     adventure.settings                       needs "reads": ["settings"]
+    adventure.blocks                         needs "reads": ["text"] (0.7.5)
     adventure.set_chapter_text               needs "changes": "writes", and only
                                              while a command the author started runs
+    suggest.replace, suggest.add             needs "changes": "suggests" or "writes" (0.7.5)
+    picture.show                             a picture for the author to Use or not (0.7.5)
     net.request                              a declared host, through the gate (F25.16)
     settings.get                             its own settings (never a secret)
 
@@ -49,6 +52,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 READS = {
     "adventure.info": "text",
     "adventure.chapter": "text",
+    "adventure.blocks": "text",
     "codex.codex": "codex",
     "codex.entry": "codex",
     "adventure.settings": "settings",
@@ -182,6 +186,9 @@ class ExtensionsArea:
         self.notices: List[dict] = []             # the last notices, for the tests
         self._number = 0
         self._store = None
+        self.suggestions: Dict[str, dict] = {}   # 0.7.5: open suggestions, by id
+        self.pictures: Dict[str, dict] = {}      # 0.7.5: pictures waiting for Use, Regenerate or Cancel
+        self.activity: Dict[str, float] = {}     # 0.7.5: when each extension last showed something
         api.events.subscribe(self._on_event)
 
     # --- helpers ------------------------------------------------------------------------------------
@@ -325,6 +332,7 @@ class ExtensionsArea:
             self._ensure(module)
         else:
             self._stop(ext_id)
+            self._forget_shown(ext_id)
         return self.list()
 
     def set_setting(self, ext_id: str, key: str, value: str) -> dict:
@@ -358,6 +366,7 @@ class ExtensionsArea:
         self.store.forget(ext_id)
         self.failures.pop(ext_id, None)
         self.findings_shown = {k: v for k, v in self.findings_shown.items() if v.get("id") != ext_id}
+        self._forget_shown(ext_id)
         self.api.emit("modules.changed", rebuild=False)
         return self.list()
 
@@ -502,6 +511,7 @@ class ExtensionsArea:
         shown = {"id": proc.id, "name": proc.module.name, "panel": panel_id,
                  "title": panel.get("title", panel.get("label", "")), "items": items}
         self.findings_shown[f"{proc.id}/{panel_id}"] = shown
+        self.activity[proc.id] = time.time()
         self._notify({"kind": "findings", **shown})
 
     # --- the calls an extension makes (F25.13) -------------------------------------------------------
@@ -527,6 +537,10 @@ class ExtensionsArea:
                 return self._network(proc, call_id, args)
             if op == "adventure.set_chapter_text":
                 return self._reply(proc, call_id, self._write(proc, args))
+            if op in ("suggest.replace", "suggest.add"):
+                return self._reply(proc, call_id, self._suggest(proc, op, args))
+            if op == "picture.show":
+                return self._reply(proc, call_id, self._picture(proc, args))
             need = READS.get(op)
             if need is None:
                 raise Refused("error.ext.unknownOp", name=name, op=str(op))
@@ -546,6 +560,8 @@ class ExtensionsArea:
             index = int(args.get("index", 0))
             chapter = self.session.chapter(index)
             return {"index": index, "text": chapter["text"], "outline": chapter.get("outline", [])}
+        if op == "adventure.blocks":
+            return {"index": int(args.get("index", 0)), "blocks": blocks_of(self.session, int(args.get("index", 0)))}
         if op == "codex.codex":
             return self.api.codex.codex()
         if op == "codex.entry":
@@ -636,3 +652,325 @@ class ExtensionsArea:
         for proc in list(self.processes.values()):
             if proc.alive() and need in proc.needs.get("reads", []):
                 proc.send({"type": "event", "name": name, "details": details})
+
+
+# --- suggestions and pictures (F25, decided 19 November 2026, 0.7.5) ------------------------------
+
+def _walk(doc: dict, path: list, out: list) -> None:
+    from scriptorum.core import source
+    for i, block in enumerate(doc.get("blocks", [])):
+        here = path + [i]
+        kind = block.get("kind") if block.get("type") == "element" else block.get("type")
+        text = ""
+        if isinstance(block.get("text"), (str, list)):
+            try:
+                text = source.inline_to_plain(block["text"])
+            except Exception:  # noqa: BLE001
+                text = ""
+        out.append({"path": here, "kind": kind, "line": block.get("line"), "source": block.get("raw", ""),
+                    "text": text})
+        if isinstance(block.get("body"), dict):
+            _walk(block["body"], here, out)
+
+
+def blocks_of(session, index: int) -> list:
+    """Every block of a chapter, nested ones too, with its path, kind, line
+    and exact source text, for an extension that reads the text."""
+    from scriptorum.core import source
+    text = session.chapter(index)["text"]
+    out: list = []
+    _walk(source.parse(text, session.kinds()), [], out)
+    return out
+
+
+def _find(session, index: int, path: list):
+    """The block at ``path`` and where its source starts in the chapter's text."""
+    from scriptorum.core import source
+    chapters = session.adventure.chapters
+    if not isinstance(index, int) or not 0 <= index < len(chapters) or not isinstance(path, list) or not path:
+        return None
+    text = session.adventure.chapter_text(chapters[index])
+    doc = source.parse(text, session.kinds())
+    block = None
+    for step in path:
+        blocks = (doc or {}).get("blocks", []) if block is None else (block.get("body") or {}).get("blocks", [])
+        if not isinstance(step, int) or not 0 <= step < len(blocks):
+            return None
+        block = blocks[step]
+        doc = None
+    raw = block.get("raw", "")
+    line_start = 0
+    for _ in range(int(block.get("line", 1)) - 1):
+        line_start = text.index("\n", line_start) + 1
+    position = text.find(raw, line_start)
+    if position < 0 or text.count("\n", line_start, position) > 0:
+        return None
+    return text, block, position
+
+
+def _word_changes(old: str, new: str) -> list:
+    """The new text in pieces, each marked changed or not, for the window."""
+    import difflib
+    a, b = old.split(" "), new.split(" ")
+    pieces = []
+    for tag, _i1, _i2, j1, j2 in difflib.SequenceMatcher(a=a, b=b, autojunk=False).get_opcodes():
+        if j2 > j1:
+            pieces.append({"text": " ".join(b[j1:j2]), "changed": tag != "equal"})
+    return pieces
+
+
+def _suggest(self, proc, op: str, args: dict) -> dict:
+    from scriptorum.core import source
+    name = proc.module.name
+    if proc.needs.get("changes", "none") not in ("suggests", "writes"):
+        raise Refused("error.ext.notDeclared", name=name, op=op)
+    session = self.session
+    if session.adventure is None:
+        raise Refused("error.ext.noAdventure", name=name)
+    index, path, new = args.get("chapter", 0), args.get("path"), args.get("source")
+    found = _find(session, index, path)
+    if found is None or not isinstance(new, str) or not new.strip():
+        raise Refused("error.ext.badCall", name=name, op=op)
+    parsed = source.parse(new.strip("\n"), session.kinds())
+    if not parsed["blocks"] or any(b.get("type") == "locked" for b in parsed["blocks"]):
+        raise Refused("error.ext.badSource", name=name)
+    _text, block, _position = found
+    self._number += 1
+    suggestion_id = f"s{self._number}"
+    old_plain = " ".join(b["text"] for b in [*_flat(block)] if b["text"]) or block.get("raw", "")
+    new_plain = " ".join(x["text"] for x in _flat_doc(parsed) if x["text"]) or new
+    suggestion = {
+        "id": suggestion_id, "ext": proc.id, "name": name, "tab": session.id, "chapter": index, "path": path,
+        "kind": "replace" if op == "suggest.replace" else "add", "original": block.get("raw", ""),
+        "line": block.get("line"), "source": new.strip("\n"), "label": str(args.get("label", ""))[:200],
+        "old": old_plain, "pieces": _word_changes(old_plain, new_plain) if op == "suggest.replace"
+        else [{"text": new_plain, "changed": True}],
+    }
+    self.suggestions[suggestion_id] = suggestion
+    self.activity[proc.id] = time.time()
+    self._notify({"kind": "suggestion", "suggestion": suggestion})
+    return {"id": suggestion_id}
+
+
+def _flat(block: dict) -> list:
+    out: list = []
+    _walk({"blocks": [block]}, [], out)
+    return out
+
+
+def _flat_doc(doc: dict) -> list:
+    out: list = []
+    _walk(doc, [], out)
+    return out
+
+
+def _forget_shown(self, ext_id: str) -> None:
+    for store in (self.suggestions, self.pictures):
+        for key in [k for k, v in store.items() if v["ext"] == ext_id]:
+            store.pop(key)
+    self.activity.pop(ext_id, None)
+
+
+def suggestions_open(self) -> list:
+    """The open suggestions, for the editor and the Extensions tab."""
+    return list(self.suggestions.values())
+
+
+def _apply(self, session, index: int, path: list, original: str, change) -> None:
+    """Splice one block's source: everything else stays byte-identical. The
+    change is one undo step (F25.12, F4.12)."""
+    if session.read_only:
+        raise Refused("error.scav.readOnly")
+    found = _find(session, index, path)
+    if found is None or found[1].get("raw", "") != original:
+        raise Refused("error.ext.suggestionStale")
+    text, block, position = found
+    end = position + len(original)
+    updated = change(text, block, position, end)
+    session._world_change()
+    session.set_chapter_text(index, updated)
+    self.api.emit("text.changed", tab=session.id)
+
+
+def accept_suggestion(self, suggestion_id: str) -> dict:
+    s = self.suggestions.get(suggestion_id)
+    if s is None:
+        return self._refusal(Refused("error.ext.noSuggestion"))
+    session = next((x for x in self.api.sessions if x.id == s["tab"]), None)
+    if session is None or session.adventure is None:
+        return self._refusal(Refused("error.ext.suggestionStale"))
+
+    def change(text, block, position, end):
+        if s["kind"] == "replace":
+            return text[:position] + s["source"] + text[end:]
+        sep = block.get("sep") or "\n\n"
+        if "\n" not in sep:
+            sep = "\n\n"
+        return text[:end] + sep + s["source"] + text[end:]
+    try:
+        self._apply(session, s["chapter"], s["path"], s["original"], change)
+    except Refused as exc:
+        return self._refusal(exc)
+    self.suggestions.pop(suggestion_id, None)
+    # The other suggestions of that chapter may now point at moved blocks.
+    for other in list(self.suggestions.values()):
+        if other["tab"] == s["tab"] and other["chapter"] == s["chapter"]:
+            self._repath(session, other)
+    return {"ok": True, "undoName": f"{s['name']}: {s['label'] or self._t('ext.suggestionLabel')}"}
+
+
+def _repath(self, session, s: dict) -> None:
+    """Find a suggestion's block again by its source after another change."""
+    for item in blocks_of(session, s["chapter"]):
+        if item["source"] == s["original"]:
+            s["path"], s["line"] = item["path"], item["line"]
+            return
+
+
+def reject_suggestion(self, suggestion_id: str) -> dict:
+    self.suggestions.pop(suggestion_id, None)
+    return {"ok": True}
+
+
+def _picture(self, proc, args: dict) -> dict:
+    import base64 as b64
+    from scriptorum.core import world as world_mod
+    name = proc.module.name
+    try:
+        data = b64.b64decode(str(args.get("base64", "")), validate=True)
+    except ValueError:
+        data = b""
+    size = world_mod.image_size(data) if data else None
+    if size is None or size[0] not in ("png", "jpeg", "jpg"):
+        raise Refused("error.ext.notPicture", name=name)
+    command = proc.command
+    self._number += 1
+    picture_id = f"p{self._number}"
+    context = dict(args.get("context") or {})
+    picture = {
+        "id": picture_id, "ext": proc.id, "name": name, "tab": self.session.id if self.session.adventure else "",
+        "chapter": args.get("chapter"), "path": args.get("path"), "description": str(args.get("description", ""))[:1000],
+        "format": "png" if size[0] == "png" else "jpg", "width": size[1], "height": size[2],
+        "base64": b64.b64encode(data).decode("ascii"), "command": command.item.get("id") if command else args.get("command"),
+        "context": context, "blockKind": None,
+    }
+    session = self.session
+    if session.adventure is not None and isinstance(picture["chapter"], int) and isinstance(picture["path"], list):
+        found = _find(session, picture["chapter"], picture["path"])
+        if found is not None:
+            block = found[1]
+            picture["blockKind"] = block.get("kind") if block.get("type") == "element" else block.get("type")
+            picture["original"] = block.get("raw", "")
+    self.pictures[picture_id] = picture
+    self.activity[proc.id] = time.time()
+    self._notify({"kind": "picture", "picture": {k: v for k, v in picture.items() if k != "original"}})
+    return {"id": picture_id}
+
+
+def pictures_waiting(self) -> list:
+    return [{k: v for k, v in p.items() if k != "original"} for p in self.pictures.values()]
+
+
+def use_picture(self, picture_id: str, as_portrait: bool = False) -> dict:
+    """Use: the picture goes into the adventure's images (F4.6) and an image
+    block with its description (F17.3) after the block it was made for;
+    from a person card, Set as portrait (11.4). One undo step."""
+    import base64 as b64
+    from scriptorum.core import source
+    p = self.pictures.get(picture_id)
+    if p is None:
+        return self._refusal(Refused("error.ext.noPicture"))
+    session = next((x for x in self.api.sessions if x.id == p["tab"]), None)
+    if session is None or session.adventure is None or session.read_only:
+        return self._refusal(Refused("error.scav.readOnly") if session and session.read_only
+                             else Refused("error.ext.noAdventure", name=p["name"]))
+    data = b64.b64decode(p["base64"])
+    file_name = f"{p['ext'].split('.')[-1]}-{picture_id}.{p['format']}"
+    try:
+        if as_portrait:
+            if p.get("blockKind") not in ("person", "card"):
+                return self._refusal(Refused("error.ext.notPortrait"))
+            found = _find(session, p["chapter"], p["path"])
+            if found is None or found[1].get("raw", "") != p.get("original"):
+                raise Refused("error.ext.suggestionStale")
+            block = found[1]
+            fields = block.get("fields") or {}
+            if block.get("kind") == "card":
+                stored = session.add_portrait(file_name, data)
+                session.update_entry(fields.get("entry", ""), {"fields": {
+                    "portrait": stored, "portrait-description": p["description"]}})
+                self.api.emit("codex.changed", tab=session.id)
+            else:
+                stored = session.add_portrait(file_name, data)
+
+                def change(text, blk, position, end):
+                    updated = dict(blk)
+                    updated["fields"] = {**(blk.get("fields") or {}), "portrait": stored,
+                                         "portrait-description": p["description"]}
+                    updated.pop("raw", None)
+                    updated.pop("head_raw", None)   # the head is written again with the new fields
+                    return text[:position] + source.block_text(updated, session.kinds()) + text[end:]
+                self._apply(session, p["chapter"], p["path"], p["original"], change)
+        else:
+            stored = session.add_image(file_name, data)
+            image = "#image(" + source.quote_string(stored) + ", alt: " + source.quote_string(p["description"]) + ")"
+            found = _find(session, p["chapter"], p["path"]) if isinstance(p.get("path"), list) else None
+            if found is not None and found[1].get("raw", "") == p.get("original"):
+                def change(text, blk, position, end):
+                    sep = blk.get("sep") or "\n\n"
+                    if "\n" not in sep:
+                        sep = "\n\n"
+                    return text[:end] + sep + image + text[end:]
+                self._apply(session, p["chapter"], p["path"], p["original"], change)
+            else:
+                index = p["chapter"] if isinstance(p.get("chapter"), int) else 0
+                text = session.adventure.chapter_text(session.adventure.chapters[index])
+                session._world_change()
+                session.set_chapter_text(index, text.rstrip("\n") + "\n\n" + image + "\n")
+                self.api.emit("text.changed", tab=session.id)
+    except Refused as exc:
+        return self._refusal(exc)
+    except Exception as exc:  # noqa: BLE001 - refused plainly (not JPEG or PNG, a read-only adventure)
+        return self.api.error(exc)
+    self.pictures.pop(picture_id, None)
+    return {"ok": True, "portrait": bool(as_portrait), "undoName": f"{p['name']}: {self._t('ext.pictureLabel')}"}
+
+
+def regenerate_picture(self, picture_id: str) -> dict:
+    """Regenerate: the extension is asked again, with the same command."""
+    p = self.pictures.pop(picture_id, None)
+    if p is None or not p.get("command"):
+        return self._refusal(Refused("error.ext.noPicture"))
+    context = {**p.get("context", {}), "regenerate": True, "chapter": p.get("chapter"), "path": p.get("path")}
+    return self.run(p["ext"], p["command"], context)
+
+
+def cancel_picture(self, picture_id: str) -> dict:
+    self.pictures.pop(picture_id, None)
+    return {"ok": True}
+
+
+def tab_info(self) -> dict:
+    """The Extensions tab in the left pane: one section per switched-on
+    extension, most recently active first, with its findings, pictures,
+    open suggestions and settings (F25, 0.7.5)."""
+    rows = self.list()
+    sections = []
+    for info in rows["extensions"]:
+        if not info["on"]:
+            continue
+        ext_id = info["id"]
+        sections.append({
+            "id": ext_id, "name": info["name"], "settings": info["settings"], "keychain": rows["keychain"],
+            "findings": [f for f in self.findings_shown.values() if f["id"] == ext_id],
+            "pictures": [p for p in self.pictures_waiting() if p["ext"] == ext_id],
+            "suggestions": [s for s in self.suggestions.values() if s["ext"] == ext_id],
+            "active": self.activity.get(ext_id, 0.0),
+        })
+    sections.sort(key=lambda s: -s["active"])
+    return {"ok": True, "show": bool(sections), "sections": sections}
+
+
+for _f in (_suggest, _forget_shown, suggestions_open, _apply, accept_suggestion, _repath, reject_suggestion,
+           _picture, pictures_waiting, use_picture, regenerate_picture, cancel_picture, tab_info):
+    setattr(ExtensionsArea, _f.__name__, _f)

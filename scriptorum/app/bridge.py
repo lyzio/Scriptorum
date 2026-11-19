@@ -522,6 +522,31 @@ class Bridge(QObject):
     def removeExtension(self, ext_id: str) -> str:
         return _json(self.api.extensions.remove(ext_id))
 
+    # --- the Extensions tab, suggestions and pictures (F25, 0.7.5) ---------------------------------
+    @Slot(result=str)
+    def extensionTab(self) -> str:
+        return _json(self.api.extensions.tab_info())
+
+    @Slot(str, result=str)
+    def acceptSuggestion(self, suggestion_id: str) -> str:
+        return _json(self.api.extensions.accept_suggestion(suggestion_id))
+
+    @Slot(str, result=str)
+    def rejectSuggestion(self, suggestion_id: str) -> str:
+        return _json(self.api.extensions.reject_suggestion(suggestion_id))
+
+    @Slot(str, bool, result=str)
+    def usePicture(self, picture_id: str, as_portrait: bool) -> str:
+        return _json(self.api.extensions.use_picture(picture_id, as_portrait))
+
+    @Slot(str, result=str)
+    def regeneratePicture(self, picture_id: str) -> str:
+        return _json(self.api.extensions.regenerate_picture(picture_id))
+
+    @Slot(str, result=str)
+    def cancelPicture(self, picture_id: str) -> str:
+        return _json(self.api.extensions.cancel_picture(picture_id))
+
     @Slot(str, str, str, result=str)
     def runExtension(self, ext_id: str, command: str, context: str) -> str:
         """The author clicked an extension's item; the answer arrives as ``extensionNotice``."""

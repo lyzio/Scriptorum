@@ -672,6 +672,8 @@ function menuModel(): { key: string; items: MenuItem[] }[] {
       // F19 (M5): the author guides, opened inside the app.
       { label: t("menu.guideTheme"), action: () => openGuide("guide-theme") },
       { label: t("menu.guideGameSystem"), action: () => openGuide("guide-game-system") },
+      // F25.19 (0.7.5): the third author guide.
+      { label: t("menu.guideExtension"), action: () => openGuide("guide-extension") },
       { label: t("menu.about"), action: () => openAbout() },
     ] },
   ];
@@ -708,12 +710,13 @@ async function runExtension(id: string, command: string, context: any): Promise<
 async function loadExtensions(): Promise<void> {
   state.extensions = (await call("extensionContributions")) ?? [];
   buildMenus();
+  await renderExtTab();
 }
 
 /** F25.11 to F25.17: what an extension sent back. */
 async function onExtensionNotice(n: any): Promise<void> {
-  if (n.kind === "findings") {
-    showFindings(n);
+  if (n.kind === "findings" || n.kind === "suggestion" || n.kind === "picture") {
+    await renderExtTab(true);
   } else if (n.kind === "done" || n.kind === "failed") {
     if (n.wrote) {
       await reloadAfterWorld();
@@ -731,28 +734,211 @@ async function onExtensionNotice(n: any): Promise<void> {
   document.body.dataset.extNotices = String(Number(document.body.dataset.extNotices || 0) + 1);
 }
 
-/** F25.17: a findings list, drawn by the app; a click goes to the place. */
-function showFindings(n: any): void {
-  $("ext-panel-title").textContent = n.title || n.name;
-  $("ext-panel-from").textContent = t("ext.findingsFrom", { name: n.name, count: n.items.length });
-  const list = $("ext-findings");
-  list.textContent = "";
-  if (!n.items.length) list.append(Object.assign(document.createElement("li"), { textContent: t("ext.findingsNone") }));
-  for (const item of n.items) {
-    const li = document.createElement("li");
-    li.textContent = item.text;
-    if (typeof item.line === "number") {
-      li.classList.add("goes");
-      li.addEventListener("click", async () => {
-        const chapter = typeof item.chapter === "number" ? item.chapter : state.chapterIndex;
-        if (chapter !== state.chapterIndex && chapter < (state.info?.chapters ?? []).length) await loadChapter(chapter, true);
-        if (state.mode === "source") source.goToLine(item.line);
-        else visual.scrollToLine(item.line);
-      });
+// --- the Extensions tab and suggestions (F25, 0.7.5) -----------------------------------------
+
+let extTab: any = { show: false, sections: [] };
+let lowerTab: "scene" | "extensions" = "scene";
+const extFolded = new Set<string>();
+
+function showLowerTab(which: "scene" | "extensions"): void {
+  lowerTab = extTab.show ? which : "scene";
+  const onExt = lowerTab === "extensions";
+  $("lt-scene").setAttribute("aria-selected", String(!onExt));
+  $("lt-extensions").setAttribute("aria-selected", String(onExt));
+  for (const id of ["scene-panel-scene", "scene-panel-list"]) $(id).classList.toggle("hidden", onExt);
+  $("ext-tab").classList.toggle("hidden", !onExt);
+}
+
+async function goToLine(chapter: number, line: number): Promise<void> {
+  if (chapter !== state.chapterIndex && chapter < (state.info?.chapters ?? []).length) await loadChapter(chapter, true);
+  if (state.mode === "source") source.goToLine(line);
+  else visual.scrollToLine(line);
+}
+
+function smallButton(label: string, action: () => void, primary = false): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "small-btn" + (primary ? " primary" : "");
+  b.textContent = label;
+  b.addEventListener("click", action);
+  return b;
+}
+
+/** The Extensions tab: one section per switched-on extension, most recently
+ * active first and open (F25, 0.7.5). */
+async function renderExtTab(focus = false): Promise<void> {
+  extTab = (await call("extensionTab")) ?? { show: false, sections: [] };
+  $("lower-tabs").classList.toggle("hidden", !extTab.show);
+  $("scene-panel").classList.toggle("tabs-on", !!extTab.show);
+  const box = $("ext-tab");
+  box.textContent = "";
+  extTab.sections.forEach((sec: any, index: number) => {
+    const details = document.createElement("details");
+    details.className = "ext-section";
+    details.dataset.extension = sec.id;
+    details.open = index === 0 ? !extFolded.has(sec.id) : false;
+    details.addEventListener("toggle", () => (details.open ? extFolded.delete(sec.id) : extFolded.add(sec.id)));
+    const summary = document.createElement("summary");
+    summary.textContent = sec.name;
+    details.append(summary);
+    for (const f of sec.findings) {
+      const h = document.createElement("h4");
+      h.textContent = `${f.title} (${f.items.length})`;
+      const list = document.createElement("ul");
+      list.className = "ext-findings";
+      if (!f.items.length) list.append(Object.assign(document.createElement("li"), { textContent: t("ext.findingsNone") }));
+      for (const item of f.items) {
+        const li = document.createElement("li");
+        li.textContent = item.text;
+        if (typeof item.line === "number") {
+          li.classList.add("goes");
+          li.addEventListener("click", () => goToLine(typeof item.chapter === "number" ? item.chapter : state.chapterIndex, item.line));
+        }
+        list.append(li);
+      }
+      details.append(h, list);
     }
-    list.append(li);
+    if (sec.suggestions.length) {
+      const h = document.createElement("h4");
+      h.textContent = t("ext.suggestionsTitle", { count: sec.suggestions.length });
+      const list = document.createElement("ul");
+      list.className = "ext-suggestion-list";
+      for (const s of sec.suggestions) {
+        const li = document.createElement("li");
+        li.className = "goes";
+        li.dataset.suggestion = s.id;
+        li.textContent = s.label || t(s.kind === "add" ? "ext.suggestAdd" : "ext.suggestReplace");
+        li.addEventListener("click", async () => {
+          await goToLine(s.chapter, s.line);
+          const card = document.querySelector<HTMLElement>(`.ext-suggestion[data-suggestion="${s.id}"]`);
+          card?.classList.add("flash");
+          setTimeout(() => card?.classList.remove("flash"), 1200);
+        });
+        list.append(li);
+      }
+      details.append(h, list);
+    }
+    for (const pic of sec.pictures) details.append(pictureBox(pic));
+    if (sec.settings.length) {
+      const h = document.createElement("h4");
+      h.textContent = t("ext.settingsTitle");
+      details.append(h);
+      for (const s of sec.settings) details.append(settingControl(sec.id, s));
+    }
+    box.append(details);
+  });
+  if (!extTab.show) showLowerTab("scene");
+  else if (focus) showLowerTab("extensions");
+  placeSuggestions();
+  document.body.dataset.extTab = String(Number(document.body.dataset.extTab || 0) + 1);
+}
+
+function settingControl(ext: string, s: any): HTMLElement {
+  const row = document.createElement("label");
+  row.className = "settings-row";
+  row.append(Object.assign(document.createElement("span"), { textContent: s.label }));
+  let control: HTMLInputElement | HTMLSelectElement;
+  if (s.kind === "choice") {
+    control = document.createElement("select");
+    for (const o of s.options) control.append(Object.assign(document.createElement("option"), { value: o, textContent: o }));
+    control.value = s.value;
+  } else {
+    control = document.createElement("input");
+    control.type = s.kind === "secret" ? "password" : "text";
+    control.autocomplete = "off";
+    if (s.kind === "secret") control.placeholder = t(s.set ? "ext.secretSet" : "ext.secretNotSet");
+    else control.value = s.value ?? "";
   }
-  $("ext-panel").classList.remove("hidden");
+  control.dataset.setting = s.id;
+  control.addEventListener("change", async () => {
+    const reply = await call("setExtensionSetting", ext, s.id, control.value);
+    if (reply?.ok === false) showMessage(reply.error ?? "");
+    if (s.kind === "secret") control.value = "";
+    await renderExtTab();
+  });
+  row.append(control);
+  return row;
+}
+
+function pictureBox(pic: any): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "ext-picture";
+  box.dataset.picture = pic.id;
+  const img = document.createElement("img");
+  img.src = `data:image/${pic.format === "png" ? "png" : "jpeg"};base64,${pic.base64}`;
+  img.alt = pic.description;
+  const note = document.createElement("p");
+  note.textContent = pic.description;
+  const buttons = document.createElement("div");
+  buttons.className = "ext-buttons";
+  const portrait = pic.blockKind === "person" || pic.blockKind === "card";
+  buttons.append(
+    smallButton(t(portrait ? "ext.setPortrait" : "ext.use"), () => usePicture(pic.id, portrait), true),
+    smallButton(t("ext.regenerate"), async () => {
+      const reply = await call("regeneratePicture", pic.id);
+      if (reply?.ok === false) showMessage(reply.error ?? "");
+      await renderExtTab();
+    }),
+    smallButton(t("dialog.cancel"), async () => { await call("cancelPicture", pic.id); await renderExtTab(); }),
+  );
+  box.append(img, note, buttons);
+  return box;
+}
+
+/** A change an extension made at the author's word: one undo step named after it. */
+async function extensionChanged(undoName: string): Promise<void> {
+  await reloadAfterWorld();
+  state.worldMarks.push(state.historyPos);
+  state.extUndo.push({ mark: state.historyPos, name: undoName });
+  buildMenus();
+}
+
+async function usePicture(id: string, portrait: boolean): Promise<void> {
+  await flush();
+  const reply = await call("usePicture", id, portrait);
+  if (reply?.ok === false) showMessage(reply.error ?? "");
+  else await extensionChanged(reply.undoName);
+  await renderExtTab();
+}
+
+async function decideSuggestion(id: string, accept: boolean): Promise<void> {
+  await flush();
+  const reply = await call(accept ? "acceptSuggestion" : "rejectSuggestion", id);
+  if (reply?.ok === false) showMessage(reply.error ?? "");
+  else if (accept) await extensionChanged(reply.undoName);
+  await renderExtTab();
+}
+
+/** Each open suggestion of this chapter, under its block in the Visual editor. */
+function placeSuggestions(): void {
+  for (const old of document.querySelectorAll(".ext-suggestion")) old.remove();
+  if (state.mode === "source") return;
+  for (const sec of extTab.sections ?? []) {
+    for (const s of sec.suggestions) {
+      if (s.chapter !== state.chapterIndex) continue;
+      const block = document.querySelector<HTMLElement>(`#visual section[data-line="${s.line}"]`);
+      if (!block) continue;
+      const card = document.createElement("div");
+      card.className = "ext-suggestion";
+      card.dataset.suggestion = s.id;
+      card.contentEditable = "false";
+      card.append(Object.assign(document.createElement("div"), {
+        className: "from", textContent: t(s.kind === "add" ? "ext.suggestAddFrom" : "ext.suggestReplaceFrom", { name: s.name }) }));
+      const text = document.createElement("div");
+      text.className = "proposed" + (s.kind === "add" ? " adding" : "");
+      s.pieces.forEach((piece: any, i: number) => {
+        if (i) text.append(" ");
+        if (piece.changed && s.kind === "replace") text.append(Object.assign(document.createElement("mark"), { textContent: piece.text }));
+        else text.append(piece.text);
+      });
+      const buttons = document.createElement("div");
+      buttons.className = "ext-buttons";
+      buttons.append(smallButton(t("ext.accept"), () => decideSuggestion(s.id, true), true),
+        smallButton(t("ext.reject"), () => decideSuggestion(s.id, false)));
+      card.append(text, buttons);
+      block.after(card);
+    }
+  }
 }
 
 /** The list holding the cursor, if any (F4, issue #5). */
@@ -2893,7 +3079,7 @@ async function boot(): Promise<void> {
       const result = await call("imageUrl", path);
       return result?.ok ? result.url : null;
     },
-    afterRender: () => spelling?.schedule(200),
+    afterRender: () => { spelling?.schedule(200); placeSuggestions(); },
     codexEntries: () => codex.entries,
     typesWithCard: () => codex.types.filter((x) => x.card).map((x) => x.id),
     maps: () => codex.maps,
@@ -3112,7 +3298,8 @@ async function boot(): Promise<void> {
   on("updateChecked", onUpdateChecked);
   // F25 (0.7.4): extensions.
   on("extensionNotice", (n: any) => onExtensionNotice(n));
-  $("ext-panel-close").addEventListener("click", () => $("ext-panel").classList.add("hidden"));
+  $("lt-scene").addEventListener("click", () => showLowerTab("scene"));
+  $("lt-extensions").addEventListener("click", () => showLowerTab("extensions"));
   $("update-settings").addEventListener("click", () => {
     $<HTMLDialogElement>("update-dialog").close();
     openSettingsWindow("application");
@@ -3143,7 +3330,9 @@ async function boot(): Promise<void> {
 // Hooks the automated interface tests use (tests/test_ui_smoke.py).
 (window as any).__scriptorum = {
   // F25 (0.7.4): the extensions' items, for the tests.
-  extensions: { run: runExtension, load: loadExtensions, undoLabel, list: () => state.extensions },
+  extensions: { run: runExtension, load: loadExtensions, undoLabel, list: () => state.extensions,
+    tab: () => extTab, showTab: showLowerTab, renderTab: renderExtTab },
+  openGuide,
   state: () => ({
     ready: state.ready,
     mode: state.mode,

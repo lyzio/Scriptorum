@@ -116,5 +116,11 @@
   "ext.textChanged": "The text changed while {name} was working, so its change was not made.",
   "ext.blocked": "{name} cannot reach the internet: connections outside the app are blocked. You can change this in Settings ▸ Application.",
   "ext.hostRefused": "{name} tried to connect to {host}, which it did not declare. Nothing was sent.",
-  "ext.network": "{name} could not reach its service: {error}"
+  "ext.network": "{name} could not reach its service: {error}",
+  "ext.badSource": "{name} suggested text that Scriptorum cannot read as blocks, so it is not shown.",
+  "ext.suggestionStale": "The text was changed since this was made, so it cannot be used any more.",
+  "ext.noSuggestion": "That suggestion is no longer open.",
+  "ext.notPicture": "{name} sent a picture that is not a JPEG or PNG file, so it is not shown.",
+  "ext.noPicture": "That picture is no longer waiting.",
+  "ext.notPortrait": "This picture was not made for a person, so it cannot be a portrait."
 }

@@ -10,7 +10,7 @@
 
 import { keysWith, t } from "./i18n";
 
-export type GuideArea = "guide-theme" | "guide-game-system";
+export type GuideArea = "guide-theme" | "guide-game-system" | "guide-extension";
 
 export interface GuideSection { id: string; title: string; body: string; }
 

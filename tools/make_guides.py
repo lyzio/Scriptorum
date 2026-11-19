@@ -34,6 +34,7 @@ STRINGS = ROOT / "scriptorum" / "bundled" / "scriptorum.en" / "strings"
 GUIDES = {
     "how-to-write-a-theme.md": "guide-theme",
     "how-to-write-a-game-system.md": "guide-game-system",
+    "how-to-write-an-extension.md": "guide-extension",   # F25.19 (0.7.5)
 }
 
 

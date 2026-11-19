@@ -224,6 +224,12 @@
    "data"
   ],
   "codex.upgrade_offer": [],
+  "extensions.accept_suggestion": [
+   "suggestion_id"
+  ],
+  "extensions.cancel_picture": [
+   "picture_id"
+  ],
   "extensions.contributions": [],
   "extensions.findings": [],
   "extensions.inspect": [
@@ -234,7 +240,14 @@
    "agreed"
   ],
   "extensions.list": [],
+  "extensions.pictures_waiting": [],
   "extensions.pump": [],
+  "extensions.regenerate_picture": [
+   "picture_id"
+  ],
+  "extensions.reject_suggestion": [
+   "suggestion_id"
+  ],
   "extensions.remove": [
    "ext_id"
   ],
@@ -254,6 +267,12 @@
    "value"
   ],
   "extensions.stop_all": [],
+  "extensions.suggestions_open": [],
+  "extensions.tab_info": [],
+  "extensions.use_picture": [
+   "picture_id",
+   "as_portrait"
+  ],
   "modules.apply_version": [],
   "modules.cancel_version": [],
   "modules.file_name": [

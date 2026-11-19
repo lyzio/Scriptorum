@@ -57,9 +57,15 @@
     <div id="codex-panel" class="codex-panel hidden"></div>
     <div id="handouts-panel" class="handouts-panel hidden"></div>
     <section id="scene-panel" class="scene-panel" data-i18n-aria="scene.title">
-      <h3 data-i18n="scene.title"></h3>
+      <!-- F25 (0.7.5): In this scene and Extensions, the second only while an extension is switched on. -->
+      <div id="lower-tabs" class="lower-tabs hidden" role="tablist">
+        <button id="lt-scene" type="button" role="tab" aria-selected="true" data-i18n="scene.title"></button>
+        <button id="lt-extensions" type="button" role="tab" aria-selected="false" data-i18n="ext.tabTitle"></button>
+      </div>
+      <h3 id="scene-panel-title" data-i18n="scene.title"></h3>
       <div id="scene-panel-scene" class="scene-panel-scene"></div>
       <ul id="scene-panel-list" class="scene-panel-list"></ul>
+      <div id="ext-tab" class="ext-tab hidden"></div>
     </section>
   </aside>
   <section id="editor-pane" class="editor-pane" data-i18n-aria="editor.label">
@@ -421,13 +427,6 @@
     <button id="ext-consent-ok" type="button" class="primary" data-i18n="ext.install"></button>
   </div>
 </dialog>
-
-<!-- F25.17 (0.7.4): an extension's findings list, drawn by the app in its own style. -->
-<div id="ext-panel" class="warnings-panel ext-panel hidden" role="dialog" aria-labelledby="ext-panel-title">
-  <div class="warnings-head"><strong id="ext-panel-title"></strong><button id="ext-panel-close" type="button" class="small-btn" data-i18n="status.warningsClose"></button></div>
-  <p id="ext-panel-from" class="settings-note"></p>
-  <ul id="ext-findings" class="warnings-list"></ul>
-</div>
 
 <div id="menu-popup" class="popup hidden" role="menu"></div>
 

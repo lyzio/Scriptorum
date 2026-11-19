@@ -281,7 +281,8 @@ def test_T_UI_23_guides_open_in_the_app(ui):
     system open the guide inside the app, with no network request; its text
     comes from the interface-language module."""
     labels = [i["label"] for m in ui.js("window.__scriptorum.menuModel()") if m["key"] == "menu.help" for i in m["items"]]
-    assert labels[-3:-1] == ["How to write a theme", "How to write a game system"], labels
+    # Corrected for 0.7.5: How to write an extension follows them (F25.19).
+    assert labels[-4:-1] == ["How to write a theme", "How to write a game system", "How to write an extension"], labels
     for label, area in (("How to write a theme", "guide-theme"), ("How to write a game system", "guide-game-system")):
         texts = _strings(area)
         before = ui.js("Number(document.body.dataset.guideShown || 0)")

@@ -83,6 +83,27 @@ class Extension:
         the secret never enters this process."""
         return self.call("net.request", url=url, method=method, headers=headers or {}, body=body)
 
+    def blocks(self, chapter: int = 0) -> list:
+        """Every block of a chapter (nested ones too) with its path, kind,
+        line and exact source text (needs reads text)."""
+        return self.call("adventure.blocks", index=chapter)["blocks"]
+
+    def suggest_replace(self, chapter: int, path: list, source: str, label: str = "") -> str:
+        """Suggest a new source for a whole block; the author accepts or
+        rejects it (needs changes suggests or writes, 0.7.5)."""
+        return self.call("suggest.replace", chapter=chapter, path=path, source=source, label=label)["id"]
+
+    def suggest_add(self, chapter: int, path: list, source: str, label: str = "") -> str:
+        """Suggest a new block after the block at ``path``."""
+        return self.call("suggest.add", chapter=chapter, path=path, source=source, label=label)["id"]
+
+    def picture(self, data: bytes, description: str, chapter: int = None, path: list = None) -> str:
+        """Show a PNG or JPEG picture for the author to Use, Regenerate or
+        Cancel; ``chapter`` and ``path`` name the block it is for."""
+        import base64
+        return self.call("picture.show", base64=base64.b64encode(data).decode("ascii"), description=description,
+                         chapter=chapter, path=path)["id"]
+
     def findings(self, panel: str, items: list) -> None:
         """Show findings in a findings-list panel (F25.17)."""
         self._channel.send({"type": "findings", "panel": panel, "items": list(items)})

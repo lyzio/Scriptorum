@@ -166,8 +166,16 @@ api.build.export("/tmp/adventure.pdf")      # {"ok": True, ...}
 | `running` | | the extensions whose process runs |
 | `pump` | | handles what running extensions sent and notices a crash or a command over the time limit; the bridge calls it on a timer, on the window's thread |
 | `stop_all` | | stops every extension's process (the window closes) |
+| `tab_info` | | the Extensions tab in the left pane: one section per switched-on extension, most recently active first, with its findings, pictures, open suggestions and settings (0.7.5) |
+| `suggestions_open` | | the open suggestions (0.7.5) |
+| `accept_suggestion` / `reject_suggestion` | suggestion_id | Accept splices the block's new source (or the new block) into the chapter as one undo step, refused if the block changed since; Reject drops it |
+| `pictures_waiting` | | the pictures waiting for Use, Regenerate or Cancel (0.7.5) |
+| `use_picture` | picture_id, as_portrait | Use: into the adventure's images and an image block with its description after its block; or Set as portrait on a person card or its codex entry; one undo step |
+| `regenerate_picture` / `cancel_picture` | picture_id | runs the same item again with `regenerate` in its context / drops it |
 
-Notices go to `api.extensions.listeners` (the bridge's `extensionNotice` signal): `done` (with `wrote` and `undoName` when it changed the text, one undo step), `findings`, `failed` (a crash, a start that failed, or 30 seconds without an answer, F25.14) and `switchedOff` (after three failures in one session).
+Version 1.1 is not released yet; in 0.7.5 its surface grew by the operations marked 0.7.5, and it stays 1.1 until 0.7 is released.
+
+Notices go to `api.extensions.listeners` (the bridge's `extensionNotice` signal): `done` (with `wrote` and `undoName` when it changed the text, one undo step), `findings`, `suggestion`, `picture`, `failed` (a crash, a start that failed, or 30 seconds without an answer, F25.14) and `switchedOff` (after three failures in one session).
 
 ### What an extension's process may ask (F25.13)
 
@@ -177,11 +185,14 @@ An extension runs in its own process (`scriptorum/core/exthost.py`) and talks to
 |---|---|---|
 | `adventure.info` | reads text | title, read-only, chapters, game system and theme |
 | `adventure.chapter` | reads text | `{"index", "text", "outline"}` of one chapter |
+| `adventure.blocks` | reads text | every block of a chapter, nested ones too: path, kind, line, exact source, plain text (0.7.5) |
 | `codex.codex`, `codex.entry` | reads codex | the codex, one entry |
 | `adventure.settings` | reads settings | the adventure's settings |
 | `adventure.set_chapter_text` | changes: writes, and only while a command the author started runs | one change; everything a command writes is one undo step, refused if the author changed the text meanwhile |
 | `net.request` | a declared host (or the address entered in its settings) | through the gate, never following a redirect; `{secret:<id>}` in a header or the body is filled in by the app, so a secret never enters the extension's process |
 | `settings.get` | | its own settings, without secrets |
+| `suggest.replace`, `suggest.add` | changes: suggests or writes | a new source for the block at a path, or a new block after it; shown to the author with Accept and Reject (0.7.5) |
+| `picture.show` | | a PNG or JPEG picture (base64) with its description, for a block; the author chooses Use, Set as portrait, Regenerate or Cancel (0.7.5) |
 
 Events it hears (F25.15): `adventure.opened`, `adventure.closed`, `adventure.saved`, `text.changed` and `build.finished` when it reads the text, `codex.changed` when it reads the codex.
 

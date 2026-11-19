@@ -156,8 +156,9 @@ def test_T_DOC_01_configuration(tmp_path):
     config = (out / "zensical.toml").read_text("utf-8")
     assert 'site_url = "https://lyzio.github.io/Scriptorum/"' in config
     pages = re.findall(r'= "([\w/.-]+\.md)"', config)
+    # Corrected for 0.7.5: the third guide, How to write an extension (F25.19).
     assert pages == ["index.md", "guides/how-to-write-a-theme.md", "guides/how-to-write-a-game-system.md",
-                     "api.md", "changelog.md", "status.md"]
+                     "guides/how-to-write-an-extension.md", "api.md", "changelog.md", "status.md"]
     for page in pages:
         assert (out / "docs" / page).is_file(), page
     # The page list above is the whole site: no design document or test plan.
@@ -186,7 +187,8 @@ def test_T_DOC_02_guides_from_the_language_module(tmp_path):
     file name becomes its title; nothing generated is kept in the repository."""
     tool = _site_tool()
     out = tool.build(tmp_path / "site")
-    for area, page in (("guide-theme", "how-to-write-a-theme"), ("guide-game-system", "how-to-write-a-game-system")):
+    for area, page in (("guide-theme", "how-to-write-a-theme"), ("guide-game-system", "how-to-write-a-game-system"),
+                       ("guide-extension", "how-to-write-an-extension")):   # the third from 0.7.5
         texts = json.loads((STRINGS / f"{area}.json").read_text("utf-8"))
         markdown = (out / "docs" / "guides" / f"{page}.md").read_text("utf-8")
         assert markdown.startswith(f"# {texts['title']}\n")
@@ -315,6 +317,7 @@ def test_T_DOC_05_site_builds(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     site = out / "site"
     for page in ("index.html", "guides/how-to-write-a-theme/index.html", "guides/how-to-write-a-game-system/index.html",
+                 "guides/how-to-write-an-extension/index.html",
                  "api/index.html", "changelog/index.html", "status/index.html"):
         assert (site / page).is_file(), page
     assert (site / "search.json").stat().st_size > 10_000

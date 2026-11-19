@@ -37,5 +37,19 @@
   "done": "{name}: {label} finished.",
   "findingsFrom": "From {name}: {count} found. Click one to go to its place.",
   "findingsNone": "Nothing found.",
-  "blockActions": "Extensions"
+  "blockActions": "Extensions",
+  "tabTitle": "Extensions",
+  "suggestionsTitle": "Suggestions ({count})",
+  "suggestionLabel": "Accept suggestion",
+  "pictureLabel": "Use picture",
+  "suggestReplace": "A new text for a block",
+  "suggestAdd": "A new block",
+  "suggestReplaceFrom": "{name} suggests:",
+  "suggestAddFrom": "{name} suggests adding:",
+  "settingsTitle": "Settings",
+  "accept": "Accept",
+  "reject": "Reject",
+  "use": "Use",
+  "setPortrait": "Set as portrait",
+  "regenerate": "Regenerate"
 }

@@ -10,6 +10,7 @@ Scriptorum runs on Linux, macOS (12 or newer) and Windows, needs no internet con
 
 - **[How to write a theme](guides/how-to-write-a-theme.md)**: make your own look for printed adventures.
 - **[How to write a game system](guides/how-to-write-a-game-system.md)**: add the rules vocabulary of a game.
+- **[How to write an extension](guides/how-to-write-an-extension.md)**: add functions to Scriptorum with your own Python code.
 - **[API reference](api.md)**: the internal Scriptorum API, the one layer between the core and everything that uses it.
 - **[Changelog](changelog.md)**: what each version brings.
 - **[Status](status.md)**: what is planned, what is being looked into and what is waiting to be tested.

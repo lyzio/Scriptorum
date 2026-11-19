@@ -64,5 +64,6 @@
   "groupText": "Text",
   "groupOther": "Other",
   "extensions": "Extensions",
-  "undoNamed": "Undo {name}"
+  "undoNamed": "Undo {name}",
+  "guideExtension": "How to write an extension"
 }

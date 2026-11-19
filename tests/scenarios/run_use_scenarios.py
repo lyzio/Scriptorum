@@ -1044,10 +1044,30 @@ def extension_steps(s: Scenario, window: MainWindow) -> None:
     s.act("Done", "window.__u.click('#settings-close')")
     s.check("an Extensions menu appears", "Extensions" in (s.js("[...document.querySelectorAll('#menubar .menu-btn')].map(b => b.textContent)") or []))
     s.act("Extensions ▸ Check headings", "window.__u.menu('Extensions'); window.__u.pick('Check headings')", 3000)
-    s.check("its findings are listed", not s.js("document.getElementById('ext-panel').classList.contains('hidden')")
-            and (s.js("document.querySelectorAll('#ext-findings li').length") or 0) > 0)
+    s.check("its findings are listed in the Extensions tab of the left pane",
+            (s.js("document.querySelectorAll('#ext-tab .ext-findings li').length") or 0) > 0
+            and s.js("document.getElementById('lt-extensions').getAttribute('aria-selected')") == "true")
     s.shot("extension-findings")
-    s.act("Close the findings", "window.__u.click('#ext-panel-close')")
+    # 0.7.5: a suggestion under its block, accepted; a picture, used.
+    from tests.test_step6 import suggester
+    window.bridge.api.extensions.install(str(packed(suggester(OUT / "helper"), OUT)), True)
+    window.bridge.api.extensions.set_on("test.helper", True)
+    s.act("Load the second extension", "window.__scriptorum.extensions.load()", 600)
+    s.act("Ask it for suggestions", "window.__scriptorum.extensions.run('test.helper', 'suggest', {})", 3000)
+    s.check("each suggestion shows under its block", (s.js("document.querySelectorAll('#visual .ext-suggestion').length") or 0) >= 1)
+    s.shot("extension-suggestions")
+    s.act("Accept the first", "document.querySelector('#visual .ext-suggestion .small-btn.primary').click(); true", 1200)
+    s.check("Undo names the extension", (s.js("window.__scriptorum.extensions.undoLabel()") or "").startswith("Undo Checker"))
+    s.act("Ask it for a picture", "window.__scriptorum.extensions.run('test.helper', 'picture', {})", 3000)
+    s.check("the picture waits in the Extensions tab", (s.js("document.querySelectorAll('#ext-tab .ext-picture').length") or 0) == 1)
+    s.shot("extension-picture")
+    s.act("Use", "document.querySelector('#ext-tab .ext-picture .small-btn.primary').click(); true", 1200)
+    s.flush()
+    s.check("the picture is in the text with its description", 'alt: "The mill at dusk"' in s.state()["text"])
+    s.act("Help ▸ How to write an extension", "window.__scriptorum.openGuide('guide-extension'); true", 800)
+    s.check("the guide opens", s.js("document.getElementById('guide-title').textContent") == "How to write an extension")
+    s.shot("guide-extension")
+    s.act("Close the guide", "window.__u.click('#guide-close')")
     window.bridge.api.extensions.stop_all()
 
 

@@ -35722,6 +35722,8 @@
         // F19 (M5): the author guides, opened inside the app.
         { label: t("menu.guideTheme"), action: () => openGuide("guide-theme") },
         { label: t("menu.guideGameSystem"), action: () => openGuide("guide-game-system") },
+        // F25.19 (0.7.5): the third author guide.
+        { label: t("menu.guideExtension"), action: () => openGuide("guide-extension") },
         { label: t("menu.about"), action: () => openAbout() }
       ] }
     ];
@@ -35750,10 +35752,11 @@
   async function loadExtensions() {
     state.extensions = await call("extensionContributions") ?? [];
     buildMenus();
+    await renderExtTab();
   }
   async function onExtensionNotice(n) {
-    if (n.kind === "findings") {
-      showFindings(n);
+    if (n.kind === "findings" || n.kind === "suggestion" || n.kind === "picture") {
+      await renderExtTab(true);
     } else if (n.kind === "done" || n.kind === "failed") {
       if (n.wrote) {
         await reloadAfterWorld();
@@ -35770,27 +35773,202 @@
     }
     document.body.dataset.extNotices = String(Number(document.body.dataset.extNotices || 0) + 1);
   }
-  function showFindings(n) {
-    $6("ext-panel-title").textContent = n.title || n.name;
-    $6("ext-panel-from").textContent = t("ext.findingsFrom", { name: n.name, count: n.items.length });
-    const list = $6("ext-findings");
-    list.textContent = "";
-    if (!n.items.length) list.append(Object.assign(document.createElement("li"), { textContent: t("ext.findingsNone") }));
-    for (const item of n.items) {
-      const li = document.createElement("li");
-      li.textContent = item.text;
-      if (typeof item.line === "number") {
-        li.classList.add("goes");
-        li.addEventListener("click", async () => {
-          const chapter = typeof item.chapter === "number" ? item.chapter : state.chapterIndex;
-          if (chapter !== state.chapterIndex && chapter < (state.info?.chapters ?? []).length) await loadChapter(chapter, true);
-          if (state.mode === "source") source.goToLine(item.line);
-          else visual.scrollToLine(item.line);
-        });
+  var extTab = { show: false, sections: [] };
+  var lowerTab = "scene";
+  var extFolded = /* @__PURE__ */ new Set();
+  function showLowerTab(which) {
+    lowerTab = extTab.show ? which : "scene";
+    const onExt = lowerTab === "extensions";
+    $6("lt-scene").setAttribute("aria-selected", String(!onExt));
+    $6("lt-extensions").setAttribute("aria-selected", String(onExt));
+    for (const id2 of ["scene-panel-scene", "scene-panel-list"]) $6(id2).classList.toggle("hidden", onExt);
+    $6("ext-tab").classList.toggle("hidden", !onExt);
+  }
+  async function goToLine(chapter, line) {
+    if (chapter !== state.chapterIndex && chapter < (state.info?.chapters ?? []).length) await loadChapter(chapter, true);
+    if (state.mode === "source") source.goToLine(line);
+    else visual.scrollToLine(line);
+  }
+  function smallButton(label, action, primary = false) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "small-btn" + (primary ? " primary" : "");
+    b.textContent = label;
+    b.addEventListener("click", action);
+    return b;
+  }
+  async function renderExtTab(focus = false) {
+    extTab = await call("extensionTab") ?? { show: false, sections: [] };
+    $6("lower-tabs").classList.toggle("hidden", !extTab.show);
+    $6("scene-panel").classList.toggle("tabs-on", !!extTab.show);
+    const box = $6("ext-tab");
+    box.textContent = "";
+    extTab.sections.forEach((sec, index) => {
+      const details = document.createElement("details");
+      details.className = "ext-section";
+      details.dataset.extension = sec.id;
+      details.open = index === 0 ? !extFolded.has(sec.id) : false;
+      details.addEventListener("toggle", () => details.open ? extFolded.delete(sec.id) : extFolded.add(sec.id));
+      const summary = document.createElement("summary");
+      summary.textContent = sec.name;
+      details.append(summary);
+      for (const f of sec.findings) {
+        const h4 = document.createElement("h4");
+        h4.textContent = `${f.title} (${f.items.length})`;
+        const list = document.createElement("ul");
+        list.className = "ext-findings";
+        if (!f.items.length) list.append(Object.assign(document.createElement("li"), { textContent: t("ext.findingsNone") }));
+        for (const item of f.items) {
+          const li = document.createElement("li");
+          li.textContent = item.text;
+          if (typeof item.line === "number") {
+            li.classList.add("goes");
+            li.addEventListener("click", () => goToLine(typeof item.chapter === "number" ? item.chapter : state.chapterIndex, item.line));
+          }
+          list.append(li);
+        }
+        details.append(h4, list);
       }
-      list.append(li);
+      if (sec.suggestions.length) {
+        const h4 = document.createElement("h4");
+        h4.textContent = t("ext.suggestionsTitle", { count: sec.suggestions.length });
+        const list = document.createElement("ul");
+        list.className = "ext-suggestion-list";
+        for (const s of sec.suggestions) {
+          const li = document.createElement("li");
+          li.className = "goes";
+          li.dataset.suggestion = s.id;
+          li.textContent = s.label || t(s.kind === "add" ? "ext.suggestAdd" : "ext.suggestReplace");
+          li.addEventListener("click", async () => {
+            await goToLine(s.chapter, s.line);
+            const card = document.querySelector(`.ext-suggestion[data-suggestion="${s.id}"]`);
+            card?.classList.add("flash");
+            setTimeout(() => card?.classList.remove("flash"), 1200);
+          });
+          list.append(li);
+        }
+        details.append(h4, list);
+      }
+      for (const pic of sec.pictures) details.append(pictureBox(pic));
+      if (sec.settings.length) {
+        const h4 = document.createElement("h4");
+        h4.textContent = t("ext.settingsTitle");
+        details.append(h4);
+        for (const s of sec.settings) details.append(settingControl(sec.id, s));
+      }
+      box.append(details);
+    });
+    if (!extTab.show) showLowerTab("scene");
+    else if (focus) showLowerTab("extensions");
+    placeSuggestions();
+    document.body.dataset.extTab = String(Number(document.body.dataset.extTab || 0) + 1);
+  }
+  function settingControl(ext, s) {
+    const row2 = document.createElement("label");
+    row2.className = "settings-row";
+    row2.append(Object.assign(document.createElement("span"), { textContent: s.label }));
+    let control;
+    if (s.kind === "choice") {
+      control = document.createElement("select");
+      for (const o of s.options) control.append(Object.assign(document.createElement("option"), { value: o, textContent: o }));
+      control.value = s.value;
+    } else {
+      control = document.createElement("input");
+      control.type = s.kind === "secret" ? "password" : "text";
+      control.autocomplete = "off";
+      if (s.kind === "secret") control.placeholder = t(s.set ? "ext.secretSet" : "ext.secretNotSet");
+      else control.value = s.value ?? "";
     }
-    $6("ext-panel").classList.remove("hidden");
+    control.dataset.setting = s.id;
+    control.addEventListener("change", async () => {
+      const reply = await call("setExtensionSetting", ext, s.id, control.value);
+      if (reply?.ok === false) showMessage(reply.error ?? "");
+      if (s.kind === "secret") control.value = "";
+      await renderExtTab();
+    });
+    row2.append(control);
+    return row2;
+  }
+  function pictureBox(pic) {
+    const box = document.createElement("div");
+    box.className = "ext-picture";
+    box.dataset.picture = pic.id;
+    const img = document.createElement("img");
+    img.src = `data:image/${pic.format === "png" ? "png" : "jpeg"};base64,${pic.base64}`;
+    img.alt = pic.description;
+    const note = document.createElement("p");
+    note.textContent = pic.description;
+    const buttons = document.createElement("div");
+    buttons.className = "ext-buttons";
+    const portrait = pic.blockKind === "person" || pic.blockKind === "card";
+    buttons.append(
+      smallButton(t(portrait ? "ext.setPortrait" : "ext.use"), () => usePicture(pic.id, portrait), true),
+      smallButton(t("ext.regenerate"), async () => {
+        const reply = await call("regeneratePicture", pic.id);
+        if (reply?.ok === false) showMessage(reply.error ?? "");
+        await renderExtTab();
+      }),
+      smallButton(t("dialog.cancel"), async () => {
+        await call("cancelPicture", pic.id);
+        await renderExtTab();
+      })
+    );
+    box.append(img, note, buttons);
+    return box;
+  }
+  async function extensionChanged(undoName) {
+    await reloadAfterWorld();
+    state.worldMarks.push(state.historyPos);
+    state.extUndo.push({ mark: state.historyPos, name: undoName });
+    buildMenus();
+  }
+  async function usePicture(id2, portrait) {
+    await flush();
+    const reply = await call("usePicture", id2, portrait);
+    if (reply?.ok === false) showMessage(reply.error ?? "");
+    else await extensionChanged(reply.undoName);
+    await renderExtTab();
+  }
+  async function decideSuggestion(id2, accept) {
+    await flush();
+    const reply = await call(accept ? "acceptSuggestion" : "rejectSuggestion", id2);
+    if (reply?.ok === false) showMessage(reply.error ?? "");
+    else if (accept) await extensionChanged(reply.undoName);
+    await renderExtTab();
+  }
+  function placeSuggestions() {
+    for (const old of document.querySelectorAll(".ext-suggestion")) old.remove();
+    if (state.mode === "source") return;
+    for (const sec of extTab.sections ?? []) {
+      for (const s of sec.suggestions) {
+        if (s.chapter !== state.chapterIndex) continue;
+        const block = document.querySelector(`#visual section[data-line="${s.line}"]`);
+        if (!block) continue;
+        const card = document.createElement("div");
+        card.className = "ext-suggestion";
+        card.dataset.suggestion = s.id;
+        card.contentEditable = "false";
+        card.append(Object.assign(document.createElement("div"), {
+          className: "from",
+          textContent: t(s.kind === "add" ? "ext.suggestAddFrom" : "ext.suggestReplaceFrom", { name: s.name })
+        }));
+        const text = document.createElement("div");
+        text.className = "proposed" + (s.kind === "add" ? " adding" : "");
+        s.pieces.forEach((piece, i) => {
+          if (i) text.append(" ");
+          if (piece.changed && s.kind === "replace") text.append(Object.assign(document.createElement("mark"), { textContent: piece.text }));
+          else text.append(piece.text);
+        });
+        const buttons = document.createElement("div");
+        buttons.className = "ext-buttons";
+        buttons.append(
+          smallButton(t("ext.accept"), () => decideSuggestion(s.id, true), true),
+          smallButton(t("ext.reject"), () => decideSuggestion(s.id, false))
+        );
+        card.append(text, buttons);
+        block.after(card);
+      }
+    }
   }
   function focusedList() {
     const place = visual.focused();
@@ -37633,7 +37811,10 @@
         const result = await call("imageUrl", path);
         return result?.ok ? result.url : null;
       },
-      afterRender: () => spelling?.schedule(200),
+      afterRender: () => {
+        spelling?.schedule(200);
+        placeSuggestions();
+      },
       codexEntries: () => codex.entries,
       typesWithCard: () => codex.types.filter((x2) => x2.card).map((x2) => x2.id),
       maps: () => codex.maps,
@@ -37849,7 +38030,8 @@
     on("selfTestFinished", onSelfTest);
     on("updateChecked", onUpdateChecked);
     on("extensionNotice", (n) => onExtensionNotice(n));
-    $6("ext-panel-close").addEventListener("click", () => $6("ext-panel").classList.add("hidden"));
+    $6("lt-scene").addEventListener("click", () => showLowerTab("scene"));
+    $6("lt-extensions").addEventListener("click", () => showLowerTab("extensions"));
     $6("update-settings").addEventListener("click", () => {
       $6("update-dialog").close();
       openSettingsWindow("application");
@@ -37877,7 +38059,16 @@
   }
   window.__scriptorum = {
     // F25 (0.7.4): the extensions' items, for the tests.
-    extensions: { run: runExtension, load: loadExtensions, undoLabel, list: () => state.extensions },
+    extensions: {
+      run: runExtension,
+      load: loadExtensions,
+      undoLabel,
+      list: () => state.extensions,
+      tab: () => extTab,
+      showTab: showLowerTab,
+      renderTab: renderExtTab
+    },
+    openGuide,
     state: () => ({
       ready: state.ready,
       mode: state.mode,

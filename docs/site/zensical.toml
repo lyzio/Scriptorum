@@ -25,6 +25,7 @@ nav = [
   { "Guides" = [
     { "How to write a theme" = "guides/how-to-write-a-theme.md" },
     { "How to write a game system" = "guides/how-to-write-a-game-system.md" },
+    { "How to write an extension" = "guides/how-to-write-an-extension.md" },
   ] },
   { "API reference" = "api.md" },
   { "Changelog" = "changelog.md" },

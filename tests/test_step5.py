@@ -752,12 +752,15 @@ def test_T_EXT_08_09_11_window(ui):
     count = int(ui.js("Number(document.body.dataset.extNotices || 0)"))
     ui.run("window.__scriptorum.extensions.run('test.checker', 'check', {})")
     ui.wait_until(lambda: int(ui.js("Number(document.body.dataset.extNotices || 0)")) >= count + 2, 20)
-    assert ui.js("!document.getElementById('ext-panel').classList.contains('hidden')")
-    assert ui.js("document.getElementById('ext-panel-title').textContent") == "Headings"
-    items = ui.js("[...document.querySelectorAll('#ext-findings li')].map((li) => li.textContent)")
+    # Corrected for 0.7.5 (F25, the Extensions tab): the findings list is in
+    # the Extensions tab at the bottom of the left pane, not a floating panel.
+    ui.wait_until(lambda: ui.js("document.querySelectorAll('#ext-tab .ext-findings li').length") > 0, 10)
+    assert ui.js("document.getElementById('lt-extensions').getAttribute('aria-selected')") == "true"
+    assert ui.js("document.querySelector('#ext-tab .ext-section h4').textContent").startswith("Headings")
+    items = ui.js("[...document.querySelectorAll('#ext-tab .ext-findings li')].map((li) => li.textContent)")
     assert "= Act one: The silent mill" in items and "<b>not markup</b>" in items
-    assert ui.js("document.querySelector('#ext-findings b')") is None
-    ui.js("document.querySelector('#ext-findings li.goes').click(); true")
+    assert ui.js("document.querySelector('#ext-tab .ext-findings b')") is None
+    ui.js("document.querySelector('#ext-tab .ext-findings li.goes').click(); true")
     # A write: one undo step, named after the extension.
     count = int(ui.js("Number(document.body.dataset.extNotices || 0)"))
     ui.run("window.__scriptorum.extensions.run('test.checker', 'upper', {})")
