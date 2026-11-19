@@ -6,9 +6,7 @@
 | Platform | GitHub Actions, ubuntu-24.04, Python 3.13, headless (the full suite); Linux (x86-64), headless, in the build session (the new and affected tests, with Zensical 0.1.2) |
 | Pinned versions | PySide6 6.8.3 (Qt 6.8 LTS) · typst 0.15.0 · spylls 0.1.7 · cryptography 48.0.1 · keyring 25.7.0 |
 | Date | 19 November 2026 |
-| Result | GitHub's Tests run for this commit: see the line below, filled in after the run |
-
-GitHub: pending.
+| Result | **441 passed**, 0 failed, 1 skipped (T-DOC-05, which needs Zensical): GitHub's Tests run for commit d32576d. In the build session T-DOC-05 also passed, with Zensical |
 
 ## This step
 
@@ -18,7 +16,7 @@ The website's sidebar ends with Latest release, after Status, linking to https:/
 
 | ID | Result | Notes |
 |---|---|---|
-| Every test of M1 to 0.7.5 | See GitHub's run | Unchanged |
+| Every test of M1 to 0.7.5 | Pass | GitHub's run 44482017527 |
 | T-DOC-07 | Pass | New. Read from the generated configuration: the last sidebar entry, at the top level after Status, is Latest release with the releases/latest address; it is the only entry that is not a page; the pages written are exactly the sidebar's pages; no guide text in Help names the address |
 | T-DOC-05 | Pass | Ran in the build session with Zensical 0.1.2 (strict build, no warnings); it now also checks that the built site links to releases/latest and makes no page for it. Skipped on GitHub's Tests run, as before |
 | T-DOC-01 to 04 | Pass | Unchanged (T-DOC-01 needed no correction, since the link is not a page) |
