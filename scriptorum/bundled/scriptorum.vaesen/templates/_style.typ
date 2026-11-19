@@ -370,3 +370,38 @@
 // Shared state: true while a person card is being laid out, so Information
 // lines inside it are drawn as short lines rather than boxes (11.3).
 #let in-card = state("scriptorum-in-person", false)
+
+
+// 11.10 (0.7.7, issue #31): inside a Box the Box is the only frame.
+// Information, read-aloud, check, dice and pacing notes standing in a Box
+// drop their own frame and are drawn as parts of the Box: each keeps its
+// label, icon and colours (a fill such as the secret box's included), and a
+// thin line in the rule colour separates it from the part before it. No
+// line goes above the first part or below the last. Person and creature
+// cards keep their frames. The Box marks its text with inside-box, which
+// in-box() reads (in context). The mark is a style, not a state, so it holds
+// at once, also while the Box measures its text: a state would need several
+// layout passes and could run out of them. It rides on the gap of a math
+// cases formula, which adventures never use. box-seen starts each Box off.
+#let box-mark = 0.4321em
+#let inside-box(body) = { set math.cases(gap: box-mark); body }
+#let in-box() = math.cases.gap == box-mark
+#let box-seen = state("scriptorum-box-seen", false)
+#let box-part(head, body, fill: none) = {
+  // The line's room is kept above every part, drawn or not: while the Box
+  // measures its text, a part cannot see the parts before it, so the
+  // measured height must not depend on them. At the top of the Box the
+  // room collapses into the Box's own space above its text.
+  context block(above: gap(spacing.small), below: 0pt, height: 0.5pt, width: 100%,
+    if box-seen.get() { line(length: 100%, stroke: 0.5pt + rule-tint) })
+  block(width: 100%, breakable: false, above: gap(spacing.small), below: gap(spacing.small),
+    fill: fill, inset: if fill == none { 0pt } else { (x: 5pt, y: 5pt) }, {
+      if head != none { head; v(spacing.small) }
+      body
+    })
+  box-seen.update(true)
+}
+// The pacing note's look without its border: the tint and its mark.
+#let box-pacing(body) = box-part(none, fill: pacing-tint,
+  grid(columns: (14pt, 1fr), column-gutter: 8pt, align: (center + horizon, left),
+    ornament("hourglass.svg", width: 11pt), frame-par(text(size: 0.95em, body))))

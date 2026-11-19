@@ -310,7 +310,12 @@ def use_01(window: MainWindow) -> dict:
     st = s.state()
     s.check("outline shows the act and both scenes", [o["title"] for o in st["outline"]][:3] == ["THE BELL OF SKÄRVIK", "Act one: The silent bell", "Scene 1: The harbour"] or
             [o["kind"] for o in st["outline"]].count("scene") == 2)
-    s.note("friction", "The person's lines \u201cShe knows (public): \u2026\u201d stay as paragraphs after converting; they would have to become Information inside the card by hand.", "later")
+    # 0.7.7 (issue #33): the person's lines "She knows (public): …" became
+    # Information inside the card, with their variants.
+    s.check("“She knows (public)” is public Information in the card (#33)",
+            '#information(variant: "public")[No boat has gone out since Sunday.]' in pasted and "She knows" not in pasted)
+    s.check("“She knows (secret)” is a secret in the card (#33)",
+            '#information(variant: "secret")[She heard her brother' in pasted)
     s.check("no build errors", st["errors"] == [])
     reply = json.loads(window.bridge.exportTo(str(OUT / "T-USE-01-pasted.pdf")))
     s.steps += 1

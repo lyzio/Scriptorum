@@ -2,7 +2,13 @@
 
 What each version of Scriptorum brings, newest first. The section of a version is also the description of its [GitHub release](https://github.com/lyzio/Scriptorum/releases).
 
-## 0.7.6 — in progress (built in steps on build/0.7.0, released once; each step has its own number)
+## 0.7.7 — in progress (built in steps on build/0.7.0, released once; each step has its own number)
+
+### 0.7.7: full-width sections, pasted knowledge, and boxes inside a Box (issues #30, #33, #31)
+
+- **A full-width section never covers a column** (issue #30). A map, a framed box or a quote standing in a column was sometimes drawn under a full-width section on the same page. Now the full-width section takes its own room; what does not fit beside it moves whole to the next column or page.
+- **"She knows" lines become Information** (issue #33). When a pasted line is converted to a person, the lines after it that start with "She knows", "He knows", "Knows", "Hon vet", "Han vet" or "Vet" become Information inside the card. The word in brackets sets the variant, so "She knows (secret): …" is a secret; without brackets the item gets the usual variant. It is one undo step with the conversion.
+- **The Box is the only frame** (issue #31). Information, read-aloud, checks, dice and pacing notes inside a Box no longer draw their own frames; a thin line separates them. Each keeps its label, icon and colours, the secret's fill included. Person and creature cards keep their frames.
 
 ### 0.7.6: a Latest release link on the website
 

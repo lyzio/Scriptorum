@@ -2,7 +2,7 @@
 // box, a hint or public information in the open curl frame (F8). Inside a
 // person card it is a short line with the variant's icon.
 
-#import "_style.typ": variant-styles, label, small-caps-label, icon, in-card, curl-frame, secret-frame, secret-text, spacing, gap, clue-mark
+#import "_style.typ": variant-styles, label, small-caps-label, icon, in-card, curl-frame, secret-frame, secret-text, spacing, gap, clue-mark, in-box, box-part, fills, framed-text
 
 // F3 (M6 part C4): a clue Information shows the small clue mark and the
 // clue's name before its text. Without a clue nothing changes.
@@ -24,6 +24,15 @@
       if f.at("clue", default: none) != none { clue-line(f, style.color); h(0.4em) }
       body
     })
+  } else if in-box() {
+    // 11.10 (0.7.7, issue #31): in a Box, the icon, the label and the
+    // colours without the frame; a secret keeps its fill.
+    let text-of = if f.variant == "secret" { secret-text } else { framed-text }
+    let inner = if f.at("clue", default: none) == none { text-of(body) } else {
+      text-of[#clue-line(f, style.color)#parbreak()#body]
+    }
+    let fill = if f.variant == "secret" { fills.at(if f.at("fill", default: "grey") == "beige" { "beige" } else { "grey" }) } else { none }
+    box-part([#icon(f.variant, style.color)#h(0.35em)#small-caps-label(name, fill: style.color)], inner, fill: fill)
   } else if f.variant == "secret" {
     let inner = if f.at("clue", default: none) == none { secret-text(body) } else {
       secret-text[#clue-line(f, style.color)#parbreak()#body]

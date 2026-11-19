@@ -95,6 +95,14 @@
         "Kopplad till",
         "Länkad till"
       ]
-    }
+    },
+    "knows": [
+      "She knows",
+      "He knows",
+      "Knows",
+      "Hon vet",
+      "Han vet",
+      "Vet"
+    ]
   }
 }

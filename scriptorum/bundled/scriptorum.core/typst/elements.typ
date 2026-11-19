@@ -38,6 +38,31 @@
   body
 }
 
+// F7.4 (0.7.7, issue #30): a full-width section takes its own room on the
+// page and nothing is drawn over anything else. Typst moves an unbreakable
+// block to the next column or page when a full-width section (a float that
+// spans the columns) leaves too little room, but not when the block measures
+// its own width with layout(): such a block (a map, a framed box, a quote)
+// was drawn over the full-width section instead. So every element a theme
+// draws as an unbreakable block is measured at the column's width and set as
+// one box of exactly that size, in a block that keeps the theme's spacing: a
+// box of known size can never be split or drawn over, and it moves on whole.
+// What the theme draws is unchanged.
+#let _shield(it) = {
+  if type(it) == content and it.func() == block and it.at("breakable", default: true) == false {
+    let spacing = (:)
+    for key in ("above", "below") {
+      if it.has(key) { spacing.insert(key, it.at(key)) }
+    }
+    block(width: 100%, breakable: true, ..spacing, layout(size => {
+      // The box gets the element's measured height: with an unknown height
+      // Typst still draws it over the full-width section.
+      let h = measure(it, width: size.width).height
+      box(width: size.width, height: h, it)
+    }))
+  } else { it }
+}
+
 // 11.1: scenes are numbered automatically.
 #let scene-counter = counter("scriptorum-scene")
 // The title of the scene being laid out, for "appears in" lists (F3.10).
@@ -116,6 +141,13 @@
 }
 
 #let make(r, labels, game: (:), world: (:)) = {
+  // F7.4 (0.7.7, issue #30): every theme renderer's unbreakable block is
+  // shielded (see _shield above).
+  let r = {
+    let shielded = (:)
+    for (kind, render) in r { shielded.insert(kind, (..args) => _shield(render(..args))) }
+    shielded
+  }
   let notation = game.at("notation", default: (:))
   let stat-blocks = game.at("stat-blocks", default: (:))
   let entries = world.at("entries", default: (:))
@@ -670,7 +702,7 @@
   let keep-together(..args) = {
     let body = args.pos().at(0, default: [])
     _mark("keep-together")
-    block(width: 100%, breakable: false, _framed(body))
+    _shield(block(width: 100%, breakable: false, _framed(body)))   // 0.7.7, issue #30
   }
 
   // F7.7 (M5): the table of contents: every act heading and scene, with its

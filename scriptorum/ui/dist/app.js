@@ -2338,12 +2338,19 @@
       const target = this.newBlock(kind);
       target.sep = block.sep;
       const pasted = target.type === "element" ? this.takeLabels(text, kind) : null;
+      const knowledge = [];
       if (pasted) {
         text = pasted.text;
         if (pasted.variant) target.variant = pasted.variant;
         if (pasted.field) this.fillPastedField(target, pasted.field[0], pasted.field[1]);
         while (place.list.blocks[place.index + 1]?.type === "paragraph") {
           const next = place.list.blocks[place.index + 1];
+          const known = this.takeKnowledge(next.text ?? "", kind);
+          if (known) {
+            knowledge.push(known);
+            place.list.blocks.splice(place.index + 1, 1);
+            continue;
+          }
           const line = this.takeLabels(next.text ?? "", kind);
           if (!line?.field || line.field[0] === this.titleField(kind) || !this.fillPastedField(target, line.field[0], line.field[1])) break;
           place.list.blocks.splice(place.index + 1, 1);
@@ -2397,6 +2404,12 @@
         } else {
           release.push(...children);
         }
+      }
+      if (knowledge.length && isDoc(target.body)) {
+        target.body.blocks.push(...knowledge);
+        target.body.blocks.forEach((b, i) => {
+          if (i === 0) delete b.sep;
+        });
       }
       release.forEach((b) => delete b.sep);
       place.list.blocks.splice(place.index, 1, target, ...release);
@@ -2470,6 +2483,30 @@
       }
       if (!found && !changedByMarker) return null;
       return { text: rest.trim(), variant, field };
+    }
+    /** F4 (0.7.7, issue #33): a pasted line that says what a person knows,
+     * such as "She knows (public): No boat has gone out.", as an Information
+     * item for a card whose element lists those words (paste labels
+     * "knows") and may hold Information. The word in brackets names the
+     * variant, as in a pasted Information label; without it the item gets the
+     * default variant. The label, the brackets and the colon go. */
+    takeKnowledge(markup, kind) {
+      const def = this.defs.get(kind);
+      const words = def?.pasteLabels?.knows ?? [];
+      if (!words.length || !this.defs.has("information") || def?.allow && !def.allow.includes("information")) return null;
+      const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[- ]/g, "[- ]");
+      const rest = markup.replace(/^\s*(?:\\?[-*+\u2022]|\d+\\?[.)])\s+/, "");
+      const re = new RegExp("^\\s*(?:" + words.map(esc).join("|") + ")\\s*(?:\\(\\s*([^)]*?)\\s*\\))?\\s*:\\s*", "i");
+      const m = re.exec(rest);
+      if (!m) return null;
+      const item = this.newBlock("information");
+      const said = (m[1] ?? "").toLowerCase();
+      if (said) {
+        const v = this.labelWords("information").variants.find(([id2, list]) => [id2, ...list].some((w) => w.toLowerCase() === said));
+        if (v) item.variant = v[0];
+      }
+      item.body = rest.slice(m[0].length).trim();
+      return item;
     }
     /** Put a pasted value into a field (issue #2). A codex field links the
      * entries of those names when every name is in the codex; otherwise the
